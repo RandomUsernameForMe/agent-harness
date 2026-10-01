@@ -18,3 +18,4 @@
 ## [2026-10-01] - Fáze 2: worker subgraf + Send fan-out (max_parallel, 1 úkol/projekt/dávku), pauza na rate limit přes interrupt (sourozenci doběhnou), ranking P → fokus secondbrainu → weight, harness queue/scan, návrhy [~], sloupec worker v event logu, dashboard se dvěma diagramy
 ## [2026-10-01] - První reálný paralelní běh fáze 2: PR guth-pictures#8 a akano3#1 souběžně, verify zelené napoprvé
 ## [2026-10-02] - Design spec fáze 3 (Telegram, dotazy přes interrupt, démon serve)
+## [2026-10-02] - Backlog: stav [-] (zamítnutý návrh), edit_backlog pod zámkem
