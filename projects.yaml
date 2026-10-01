@@ -1,0 +1,28 @@
+# Příkazy ověřené 2026-10-01 v čerstvém worktree z origin/main přes cmd.exe (harness sh()).
+defaults:
+  max_attempts: 3
+  max_diff_lines: 800
+billing: subscription
+max_tasks_per_run: 3
+quota_threshold: 0.7
+
+projects:
+  guth-pictures:
+    path: ../guth-pictures
+    base: main
+    setup: ["npm ci"]
+    # visual-components.test.tsx padá na main (IntersectionObserver v jsdom) — vyřazeno, ať gate pokrývá zbytek
+    verify: ['npx vitest run --exclude "**/visual-components.test.tsx" --exclude "**/node_modules/**"', "npx tsc --noEmit"]
+  akano3:
+    path: ../akano3
+    base: main
+    setup: ["npm ci"]
+    verify: ["node --test lib/*.test.mjs", "npx tsc --noEmit"]
+  secondbrain:
+    path: ../secondbrain
+    base: main
+    # venv mimo worktree: .venv není v secondbrainu gitignored
+    setup: ["npm ci --prefix web", 'python -m venv ..\_venv && ..\_venv\Scripts\python -m pip install -q -r bot\requirements.txt pytest']
+    # -X utf8: test_vault padá na Windows cp1252; bot běží na Linuxu (GitHub Actions)
+    verify: ['..\_venv\Scripts\python -X utf8 -m pytest bot -q', "npm test --prefix web"]
+    allowed: ["bot/**", "web/**", "scripts/**"]

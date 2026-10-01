@@ -1,0 +1,9 @@
+name: Tři úkoly s opakováním, limit dvou na běh
+max_tasks: 2
+tasks:
+  - {project: demo, id: sim-01, title: "A", priority: P1}
+  - {project: demo, id: sim-02, title: "B", priority: P1}
+  - {project: demo, id: sim-03, title: "C", priority: P1}
+nodes:
+  verify: [{fail: "x"}, {fail: "y"}, pass, {fail: "z"}, {fail: "w"}, pass]
+delay: 0.3

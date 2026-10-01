@@ -1,0 +1,6 @@
+name: Worker sáhne na zakázanou cestu
+tasks:
+  - {project: demo, id: sim-01, title: "Úprava bota", priority: P1}
+nodes:
+  verify: [{guard: "forbidden paths: Thoughts/2026-10-01.md"}]
+delay: 0.8

@@ -1,0 +1,31 @@
+[project]
+name = "harness"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "langgraph>=1.2,<2",
+  "langgraph-checkpoint-sqlite>=3.1,<4",
+  "claude-agent-sdk>=0.2.163",
+  "fastapi>=0.142",
+  "uvicorn>=0.54",
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9", "httpx>=0.28"]
+
+[project.scripts]
+harness = "harness.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["harness*"]
+
+[tool.setuptools.package-data]
+harness = ["prompts/*.md", "dashboard/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

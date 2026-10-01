@@ -1,0 +1,6 @@
+name: Testy dvakrát spadnou, potřetí projdou
+tasks:
+  - {project: demo, id: sim-01, title: "Demo úkol", priority: P1}
+nodes:
+  verify: [{fail: "2 tests failed"}, {fail: "1 test failed"}, pass]
+delay: 0.8

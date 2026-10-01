@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg:#f7f7f8; --panel:#fff; --text:#1b1b1f; --muted:#6b6b76; --line:#e2e2e7; --accent:#4b5cf0; --ok:#1f8a4c; --bad:#c8372d; --warn:#b7791f; --on-accent:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111114; --panel:#1b1b20; --text:#ececf1; --muted:#9a9aa6; --line:#2c2c33; --accent:#8c98ff; --ok:#4cc38a; --bad:#ff6b5e; --warn:#f0b75a; --on-accent:#111114; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0 12px 0 0; }
+  select, button { font:inherit; padding:6px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--text); }
+  button.primary { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+  button:disabled { opacity:.5; }
+  main { display:grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap:16px; padding:16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 8px; }
+  #graph svg { max-width:100%; height:auto; }
+  #graph .node.active rect, #graph .node.active polygon, #graph .node.active circle { stroke:var(--accent) !important; stroke-width:3px !important; fill:color-mix(in srgb, var(--accent) 25%, transparent) !important; }
+  #graph .node.error rect { stroke:var(--bad) !important; stroke-width:3px !important; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr.sel { background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  tr[data-run] { cursor:pointer; }
+  .tag { font-size:11px; padding:1px 6px; border-radius:99px; border:1px solid var(--line); color:var(--muted); }
+  .k-end { color:var(--ok); } .k-error, .k-paused { color:var(--bad); } .k-start { color:var(--muted); }
+  pre { white-space:pre-wrap; word-break:break-word; font-size:12px; background:var(--bg); padding:8px; border-radius:6px; max-height:260px; overflow:auto; margin:0; }
+  .meter { height:8px; background:var(--line); border-radius:99px; overflow:hidden; }
+  .meter > div { height:100%; background:var(--accent); }
+  .muted { color:var(--muted); }
+  .scroll { max-height:320px; overflow:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Harness</h1>
+  <select id="scenario" aria-label="Scénář"></select>
+  <label><input type="checkbox" id="stepMode"> krokovat</label>
+  <button class="primary" id="start">Spustit simulaci</button>
+  <button id="step" disabled>Další krok</button>
+  <span id="status" class="muted"></span>
+</header>
+<main>
+  <section><h2>Graf</h2><div id="graph"></div><h2 style="margin-top:12px">Detail uzlu</h2><pre id="detail">Klikni na uzel nebo event.</pre></section>
+  <section><h2>Běhy</h2><div class="scroll"><table id="runs"></table></div>
+    <h2 style="margin-top:12px">Události běhu</h2><div class="scroll"><table id="events"></table></div></section>
+  <section><h2>Backlog</h2><table id="backlog"></table></section>
+  <section><h2>Spotřeba</h2><div id="quota"></div><table id="usage"></table></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js" integrity="sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2" crossorigin="anonymous"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const api = async (path, opts) => { const r = await fetch(path, opts); if (!r.ok) throw new Error(await r.text()); return r.json(); };
+let selectedRun = null, lastEventId = 0, lastNodeData = {};
+
+function nodeEl(name) { return document.querySelector(`#graph [id*="flowchart-${name}-"]`); }
+function highlight(name, cls) {
+  document.querySelectorAll("#graph .node").forEach((n) => n.classList.remove("active", "error"));
+  const el = name && nodeEl(name);
+  if (el) el.classList.add(cls);
+}
+
+async function renderGraph() {
+  const { mermaid: src } = await api("/graph");
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default" });
+  const { svg } = await mermaid.render("g", src);
+  $("graph").innerHTML = svg;
+  $("graph").querySelectorAll(".node").forEach((n) => {
+    const name = n.id.replace(/^.*?flowchart-/, "").replace(/-\d+$/, "");
+    n.style.cursor = "pointer";
+    n.onclick = () => { $("detail").textContent = JSON.stringify(lastNodeData[name] ?? { node: name, info: "zatím bez dat v tomto běhu" }, null, 2); };
+  });
+}
+
+async function loadScenarios() {
+  const list = await api("/scenarios");
+  $("scenario").innerHTML = list.map((s) => `<option value="${esc(s.name)}">${esc(s.title)}</option>`).join("");
+}
+
+async function loadRuns() {
+  const runs = await api("/runs");
+  $("runs").innerHTML = "<tr><th>Běh</th><th>Typ</th><th>Stav</th></tr>" + runs.slice(0, 30).map((r) =>
+    `<tr data-run="${esc(r.run_id)}" class="${r.run_id === selectedRun ? "sel" : ""}"><td>${esc(r.run_id)}</td><td><span class="tag">${r.simulated ? "sim" : "real"}</span></td><td class="k-${esc(r.last_kind)}">${esc(r.last_kind)}</td></tr>`).join("");
+  $("runs").querySelectorAll("tr[data-run]").forEach((tr) => tr.onclick = () => selectRun(tr.dataset.run));
+}
+
+async function selectRun(runId) {
+  selectedRun = runId; lastNodeData = {};
+  const evs = await api(`/runs/${encodeURIComponent(runId)}/events`);
+  $("events").innerHTML = "";
+  evs.forEach(addEventRow);
+  const last = evs.filter((e) => e.node).at(-1);
+  highlight(last?.node, last?.kind === "error" ? "error" : "active");
+  await Promise.all([loadRuns(), loadBacklog(), refreshStepButton()]);
+}
+
+function addEventRow(e) {
+  if (e.node && e.kind !== "start") lastNodeData[e.node] = e;
+  const t = new Date(e.ts * 1000).toLocaleTimeString();
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td class="muted">${t}</td><td>${esc(e.node ?? "")}</td><td class="k-${esc(e.kind)}">${esc(e.kind)}</td>`;
+  tr.style.cursor = "pointer";
+  tr.onclick = () => { $("detail").textContent = JSON.stringify(e, null, 2); };
+  $("events").prepend(tr);
+}
+
+async function loadBacklog() {
+  const q = selectedRun?.startsWith("sim-") ? `?sim=${encodeURIComponent(selectedRun)}` : "";
+  const tasks = await api(`/backlog${q}`);
+  $("backlog").innerHTML = "<tr><th>Stav</th><th>P</th><th>Úkol</th><th>Projekt</th></tr>" + tasks.map((t) =>
+    `<tr><td>[${esc(t.status)}]</td><td>P${t.priority}</td><td>${esc(t.id)} ${esc(t.title)}</td><td class="muted">${esc(t.project)}</td></tr>`).join("");
+}
+
+async function loadUsage() {
+  const { summary, rate_limit } = await api("/usage");
+  const util = rate_limit?.utilization;
+  $("quota").innerHTML = util == null ? '<p class="muted">Kvóta: zatím žádná data ze skutečného běhu.</p>' :
+    `<p>Okno ${esc(rate_limit.type)}: ${(util * 100).toFixed(0)} %${rate_limit.resets_at ? ", reset " + new Date(rate_limit.resets_at * 1000).toLocaleTimeString() : ""}</p><div class="meter"><div style="width:${Math.min(util * 100, 100)}%"></div></div>`;
+  $("usage").innerHTML = "<tr><th>Den</th><th>Uzel</th><th>Model</th><th>Tokeny</th><th>$</th></tr>" + summary.map((u) =>
+    `<tr><td>${esc(u.day)}${u.simulated ? ' <span class="tag">sim</span>' : ""}</td><td>${esc(u.node)}</td><td>${esc(u.model)}</td><td>${u.input_tokens + u.output_tokens}</td><td>${(u.cost_usd ?? 0).toFixed(3)}</td></tr>`).join("");
+}
+
+async function refreshStepButton() {
+  if (!selectedRun) return;
+  try {
+    const st = await api(`/runs/${encodeURIComponent(selectedRun)}/state`);
+    $("step").disabled = st.running || st.next.length === 0;
+    if (st.running) { $("status").textContent = "krok běží…"; setTimeout(refreshStepButton, 300); return; }
+    $("status").textContent = st.next.length ? `čeká před: ${st.next.join(", ")}` : "";
+    if (st.next.length) highlight(st.next[0], "active");
+  } catch { $("step").disabled = true; }
+}
+
+$("start").onclick = async () => {
+  const { run_id } = await api("/simulate", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scenario: $("scenario").value, step: $("stepMode").checked }) });
+  await selectRun(run_id);
+  setTimeout(refreshStepButton, 300);
+};
+$("step").onclick = async () => {
+  $("step").disabled = true;
+  await api(`/runs/${encodeURIComponent(selectedRun)}/step`, { method: "POST" });
+  setTimeout(refreshStepButton, 300);
+};
+
+function listen() {
+  const es = new EventSource(`/events/stream?after=${lastEventId}`);
+  es.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    lastEventId = e.id;
+    if (e.run_id === selectedRun) {
+      addEventRow(e);
+      if (e.node) highlight(e.node, e.kind === "error" ? "error" : "active");
+      if (e.kind === "end" && (e.node === "report" || e.node === "pick_task")) loadBacklog();
+      if (["run_end", "paused"].includes(e.kind)) { highlight(null); $("status").textContent = e.kind; }
+      if (e.kind === "end") refreshStepButton();
+    }
+    if (["run_start", "run_end", "paused"].includes(e.kind)) loadRuns();
+    if (e.usage) loadUsage();
+  };
+}
+
+(async () => {
+  await Promise.all([renderGraph(), loadScenarios(), loadRuns(), loadBacklog(), loadUsage()]);
+  const runs = await api("/runs");
+  if (runs.length) {
+    const evs = await api(`/runs/${encodeURIComponent(runs[0].run_id)}/events`);
+    lastEventId = Math.max(0, ...evs.map((e) => e.id));
+  }
+  listen();
+})();
+</script>
+</body>
+</html>

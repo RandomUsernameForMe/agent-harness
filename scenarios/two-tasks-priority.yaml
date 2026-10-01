@@ -1,0 +1,6 @@
+name: Dva úkoly, P1 jde první
+tasks:
+  - {project: demo, id: sim-01, title: "Méně důležitý", priority: P2}
+  - {project: demo, id: sim-02, title: "Důležitý", priority: P1}
+nodes: {}
+delay: 0.5
