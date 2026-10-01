@@ -14,7 +14,7 @@ from .nodes.common import make_pick_tasks, make_report
 from .nodes.real import git, real_nodes, worktree_path
 from .projects import load_config
 from .priority import config_focus, rank
-from .runner import execute, pending, run_config
+from .runner import execute, pending, questions, run_config
 from .scan import new_proposals, proposal_lines, scan_project
 from .sdk import check_billing
 from .simulate import prepare
@@ -35,6 +35,11 @@ def _scenario_path(home: Path, name: str) -> Path | None:
     return p if p.exists() else None
 
 
+def ask_in_terminal(app, config: dict) -> dict[str, str]:
+    return {q["id"]: input(f"{q['task']}: {q['question']} (Enter = přeskočit) > ").strip()
+            for q in questions(app, config)}
+
+
 def cmd_simulate(args) -> int:
     path = _scenario_path(args.home, args.scenario)
     if path is None:
@@ -44,7 +49,10 @@ def cmd_simulate(args) -> int:
     sim = prepare(path, Path(tempfile.mkdtemp(prefix="harness-sim-")), saver, step=args.step, delay=args.delay)
     print(f"run {sim.run_id}")
     status = execute(sim.app, sim.inputs, sim.config, conn, simulated=True)
-    while status == "interrupted":
+    while status in ("interrupted", "waiting"):
+        if status == "waiting":
+            status = execute(sim.app, None, sim.config, conn, simulated=True, answers=ask_in_terminal(sim.app, sim.config))
+            continue
         nxt = ", ".join(pending(sim.app, sim.config))
         if input(f"další uzel: {nxt} — Enter = krok, q = konec > ").strip().lower() == "q":
             break
@@ -66,7 +74,10 @@ def cmd_run(args) -> int:
     app = build_graph(nodes, saver)
     run_id = args.resume or f"run-{time.strftime('%Y%m%d-%H%M%S')}"
     inputs = None if args.resume else initial_state(run_id, cfg, simulated=False)
-    status = execute(app, inputs, run_config(run_id), conn, simulated=False)
+    config = run_config(run_id)
+    status = execute(app, inputs, config, conn, simulated=False)
+    while status == "waiting":
+        status = execute(app, None, config, conn, simulated=False, answers=ask_in_terminal(app, config))
     print(f"{run_id} {status}")
     if status == "paused":
         print(f"resume: harness run --resume {run_id}")

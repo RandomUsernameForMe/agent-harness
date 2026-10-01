@@ -12,10 +12,15 @@ from pydantic import BaseModel
 
 from .. import backlog, events
 from ..graph import graph_mermaid, worker_mermaid
-from ..runner import execute, pending
+from ..runner import execute, pending, questions
 from ..simulate import Simulation, prepare
 
 STATIC = Path(__file__).parent / "static"
+
+
+class AnswerRequest(BaseModel):
+    id: str
+    answer: str
 
 
 class SimulateRequest(BaseModel):
@@ -35,9 +40,9 @@ def create_app(home: Path) -> FastAPI:
     def scenarios() -> dict[str, Path]:
         return {p.stem: p for p in sorted((home / "scenarios").glob("*.yaml"))}
 
-    def run_sim(sim: Simulation, inputs) -> None:
+    def run_sim(sim: Simulation, inputs, answers: dict[str, str] | None = None) -> None:
         with sim.lock:
-            execute(sim.app, inputs, sim.config, conn, simulated=True)
+            execute(sim.app, inputs, sim.config, conn, simulated=True, answers=answers)
 
     @app.get("/")
     def index():
@@ -60,7 +65,9 @@ def create_app(home: Path) -> FastAPI:
         sim = sims.get(run_id)
         if sim is None:
             raise HTTPException(404, "only simulations started from this dashboard have live state")
-        return {"next": pending(sim.app, sim.config), "running": sim.lock.locked(), "simulated": True}
+        running = sim.lock.locked()
+        return {"next": pending(sim.app, sim.config), "running": running, "simulated": True,
+                "questions": [] if running else questions(sim.app, sim.config)}
 
     @app.get("/events/stream")
     async def stream(after: int = 0):
@@ -107,6 +114,18 @@ def create_app(home: Path) -> FastAPI:
         if sim.lock.locked():
             raise HTTPException(409, "step already running")
         threading.Thread(target=run_sim, args=(sim, None), daemon=True).start()
+        return {"ok": True}
+
+    @app.post("/runs/{run_id}/answer")
+    def answer(run_id: str, req: AnswerRequest):
+        sim = sims.get(run_id)
+        if sim is None:
+            raise HTTPException(404, "unknown simulation")
+        if sim.lock.locked():
+            raise HTTPException(409, "run is busy")
+        if req.id not in {q["id"] for q in questions(sim.app, sim.config)}:
+            raise HTTPException(404, "unknown question")
+        threading.Thread(target=run_sim, args=(sim, None, {req.id: req.answer}), daemon=True).start()
         return {"ok": True}
 
     return app

@@ -64,3 +64,12 @@ def test_scan_write_appends_proposals_once(tmp_path, capsys):
     assert (tmp_path / "BACKLOG.md").read_text(encoding="utf-8") == text
     assert "no new proposals" in capsys.readouterr().out
     assert main(["--home", str(tmp_path), "scan", "--project", "nope"]) == 2
+
+
+def test_simulate_asks_unclear_question_in_terminal(tmp_path, capsys, monkeypatch):
+    shutil.copytree(ROOT / "scenarios", tmp_path / "scenarios")
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda p: prompts.append(p) or "měř LCP")
+    assert main(["--home", str(tmp_path), "simulate", "clarify-answered", "--delay", "0"]) == 0
+    assert prompts and "Co přesně měřit?" in prompts[0]
+    assert "[x] P1 sim-01" in capsys.readouterr().out
