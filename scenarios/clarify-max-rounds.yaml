@@ -1,0 +1,6 @@
+name: Ani po dvou upřesněních není zadání jasné
+tasks:
+  - {project: demo, id: sim-01, title: "Zlepšit výkon", priority: P1}
+nodes:
+  plan: {unclear: "Pořád nevím, co měřit."}
+delay: 0.8

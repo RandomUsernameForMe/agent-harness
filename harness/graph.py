@@ -9,8 +9,9 @@ from .projects import Config
 
 WORKER_NODES = ("preflight", "make_worktree", "plan", "setup", "implement", "verify", "open_pr", "report")
 NODES = ("pick_tasks", *WORKER_NODES)
-LINEAR = {"preflight": "make_worktree", "make_worktree": "plan", "plan": "setup",
+LINEAR = {"preflight": "make_worktree", "make_worktree": "plan",
           "setup": "implement", "implement": "verify", "open_pr": "report"}
+MAX_CLARIFY = 2
 RETRYING = {"make_worktree", "open_pr"}
 
 
@@ -27,6 +28,7 @@ class WorkerState(TypedDict, total=False):
     branch: str
     worktree: str
     plan: str
+    clarifications: list[str]
     baseline_failures: list[str]
     attempts: int
     verify_ok: bool
@@ -60,6 +62,25 @@ class RateLimited(Exception):
 def fan_out(state: State) -> list[Send] | str:
     base = {"run_id": state["run_id"], "simulated": state.get("simulated", False), "usage": []}
     return [Send("worker", base | item) for item in state.get("batch") or []] or END
+
+
+def after_plan(state: WorkerState) -> str:
+    if state.get("outcome") == "needs_clarification" and len(state.get("clarifications") or []) < MAX_CLARIFY:
+        return "clarify"
+    return "report" if state.get("outcome") else "setup"
+
+
+def after_clarify(state: WorkerState) -> str:
+    return "report" if state.get("outcome") else "plan"
+
+
+def clarify(state: WorkerState) -> dict:
+    t = state["task"]
+    answer = interrupt({"question": state.get("last_failure", ""), "task": t["id"], "title": t.get("title", ""),
+                        "project": t.get("project", "")})
+    if not (answer or "").strip():
+        return {}  # skipped: outcome stays needs_clarification → report writes [?]
+    return {"outcome": None, "last_failure": "", "clarifications": [*(state.get("clarifications") or []), answer.strip()]}
 
 
 def after_verify(state: WorkerState) -> str:
@@ -97,13 +118,16 @@ def build_worker(nodes: dict[str, Callable], step: bool = False):
             g.add_node(name, nodes[name], retry_policy=RetryPolicy(max_attempts=3, retry_on=CalledProcessError))
         else:
             g.add_node(name, _safe(nodes[name]))
+    g.add_node("clarify", clarify)  # not _safe: the interrupt must propagate
     g.add_edge(START, "preflight")
     for src, nxt in LINEAR.items():
         g.add_conditional_edges(src, _linear(nxt), sorted({nxt, "report"}))
+    g.add_conditional_edges("plan", after_plan, ["clarify", "setup", "report"])
+    g.add_conditional_edges("clarify", after_clarify, ["plan", "report"])
     g.add_conditional_edges("verify", after_verify, ["open_pr", "implement", "report"])
     g.add_edge("report", END)
     # no checkpointer: inherits the parent's, each Send gets its own namespace worker:<task id>
-    return g.compile(interrupt_before=list(WORKER_NODES) if step else None)
+    return g.compile(interrupt_before=[*WORKER_NODES, "clarify"] if step else None)
 
 
 def _worker_node(sub) -> Callable:

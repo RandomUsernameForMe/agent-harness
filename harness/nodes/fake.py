@@ -57,7 +57,10 @@ def fake_nodes(script: Script) -> dict:
         v = script.next("plan", s["task"]["id"])
         if "unclear" in v:
             return {"outcome": "needs_clarification", "last_failure": v["unclear"], "usage": _usage("plan", "opus")}
-        return _failed(v) if v else {"plan": "1. Simulovaný krok", "usage": _usage("plan", "opus")}
+        if v:
+            return _failed(v)
+        notes = "".join(f"\nUpřesnění: {c}" for c in s.get("clarifications") or [])
+        return {"plan": "1. Simulovaný krok" + notes, "usage": _usage("plan", "opus")}
 
     def setup(s):
         v = script.next("setup", s["task"]["id"])

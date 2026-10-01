@@ -19,3 +19,4 @@
 ## [2026-10-01] - První reálný paralelní běh fáze 2: PR guth-pictures#8 a akano3#1 souběžně, verify zelené napoprvé
 ## [2026-10-02] - Design spec fáze 3 (Telegram, dotazy přes interrupt, démon serve)
 ## [2026-10-02] - Backlog: stav [-] (zamítnutý návrh), edit_backlog pod zámkem
+## [2026-10-02] - Uzel clarify: nejasný úkol se ptá přes interrupt (max 2 kola), stav běhu waiting, open_interrupts ignoruje zodpovězené interrupty hotových workerů

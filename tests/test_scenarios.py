@@ -4,7 +4,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from harness import events
 from harness.backlog import parse
-from harness.runner import execute, pending
+from harness.runner import execute, pending, questions
 from harness.simulate import prepare
 
 SCENARIOS = Path(__file__).parent.parent / "scenarios"
@@ -48,7 +48,12 @@ def test_retries_exhausted(tmp_path):
 
 
 def test_unclear_task(tmp_path):
-    sim, conn, _ = run("unclear-task", tmp_path)
+    sim, conn, status = run("unclear-task", tmp_path)
+    assert status == "waiting"
+    [q] = questions(sim.app, sim.config)
+    assert (q["task"], q["question"]) == ("sim-01", "Co přesně měřit?")
+    assert [e["kind"] for e in events.events_after(conn, 0, sim.run_id)][-1] == "waiting"
+    assert execute(sim.app, None, sim.config, conn, simulated=True, answers={q["id"]: ""}) == "done"
     assert statuses(sim) == {"sim-01": "?"}
     assert sim.script.calls["setup"] == 0
     assert "UNCLEAR: Co přesně měřit?" in sim.backlog_path.read_text(encoding="utf-8")
@@ -176,3 +181,46 @@ def test_rate_limit_still_active_after_resume_pauses_again(tmp_path):
     assert statuses(sim) == {"a-1": "x"}
     assert sim.script.calls["plan"] == 3
     assert sim.script.calls["preflight"] == 1
+
+
+def answer_all(sim, conn, text, **kw):
+    return execute(sim.app, None, sim.config, conn, simulated=True,
+                   answers={q["id"]: text for q in questions(sim.app, sim.config)}, **kw)
+
+
+def test_clarify_answered(tmp_path):
+    sim, conn, status = run("clarify-answered", tmp_path)
+    assert status == "waiting" and statuses(sim) == {"sim-01": " "}
+    assert answer_all(sim, conn, "měř LCP na /gallery") == "done"
+    assert statuses(sim) == {"sim-01": "x"}
+    assert sim.script.calls["plan"] == 2
+    plans = [e["delta"]["plan"] for e in events.events_after(conn, 0, sim.run_id)
+             if e["node"] == "plan" and e["kind"] == "end" and "plan" in (e["delta"] or {})]
+    assert plans == ["1. Simulovaný krok\nUpřesnění: měř LCP na /gallery"]
+
+
+def test_clarify_max_rounds(tmp_path):
+    sim, conn, status = run("clarify-max-rounds", tmp_path)
+    assert answer_all(sim, conn, "první") == "waiting"
+    assert answer_all(sim, conn, "druhá") == "done"
+    assert statuses(sim) == {"sim-01": "?"}
+    assert sim.script.calls["plan"] == 3 and sim.script.calls["setup"] == 0
+
+
+def test_parallel_clarify_sibling_finishes(tmp_path):
+    sim, conn, status = run("parallel-clarify", tmp_path)
+    assert status == "waiting"
+    assert statuses(sim) == {"sim-a1": " ", "sim-b1": "x"}
+    assert [q["task"] for q in questions(sim.app, sim.config)] == ["sim-a1"]
+    assert answer_all(sim, conn, "ano") == "done"
+    assert statuses(sim) == {"sim-a1": "x", "sim-b1": "x"}
+    assert sim.script.calls["open_pr"] == 2  # b1 not repeated
+
+
+def test_pause_wins_over_question_and_one_resume_answers_both(tmp_path):
+    sim, conn, status = run("clarify-rate-limit", tmp_path)
+    assert status == "paused"  # the question is still listed, the caller holds the answer until the reset
+    assert [q["task"] for q in questions(sim.app, sim.config)] == ["sim-a1"]
+    assert answer_all(sim, conn, "ano") == "done"
+    assert statuses(sim) == {"sim-a1": "x", "sim-b1": "x"}
+    assert sim.script.calls["implement"] == 3  # b1 limited + retried, a1 once

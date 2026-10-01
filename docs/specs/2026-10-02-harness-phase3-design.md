@@ -49,7 +49,7 @@ flowchart LR
 
 - `open_interrupts(app, config)` — interrupty nedokončených tasků (viz výše).
 - `questions(app, config)` → `[{id, task, title, project, question}]`.
-- `execute(..., answers: dict[str, str] | None = None, resume_limits: bool = True)` — resume = `{id rate-limitu: True}` (jen když `resume_limits`) ∪ `answers`. Rate limit se tedy neopakuje předčasně, když uživatel odpoví dřív, než limit vyprší.
+- `execute(..., answers: dict[str, str] | None = None)` — resume = `{id rate-limitu: True}` ∪ `answers`. **Zjištěno při implementaci:** resume znovu spustí *každý* přerušený uzel (rate-limitovaný uzel tedy zopakuje práci i bez resume hodnoty), selektivně resumovat nejde. Proto: dokud je běh `paused`, démon odpovědi jen řadí do fronty a resumuje až po `resets_at` — kvóta je sdílená, zodpovězený úkol by stejně narazil.
 - Návratové stavy: `paused` (otevřený rate limit) > `waiting` (otevřený dotaz) > `interrupted` (krokování) > `done`. Event `waiting` s `delta.questions`.
 - CLI `run` / `simulate`: při `waiting` se zeptá v terminálu (Enter = přeskočit) a pokračuje.
 - Dashboard: `/runs/{id}/state` vrací `questions`, `POST /runs/{id}/answer {id, answer}`; frontend ukáže otázku s polem pro odpověď.

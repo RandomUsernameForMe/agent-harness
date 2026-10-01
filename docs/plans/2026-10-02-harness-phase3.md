@@ -45,7 +45,7 @@ Exekuce: inline (pod `/goal`). Každý krok: test → implementace → `python -
 - `after_plan(state) -> "clarify" | "report" | "setup"`; `after_clarify(state) -> "plan" | "report"`.
 - `clarify(state)`: `answer = interrupt({"question": last_failure, "task": id, "title", "project"})`; neprázdná → `{"outcome": None, "last_failure": "", "clarifications": [*old, answer]}`, jinak `{}`.
 - `runner.open_interrupts(app, config) -> list[Interrupt]` (tasky s `result is None`), `runner.questions(app, config) -> list[dict]` (`{"id", "task", "title", "project", "question"}`).
-- `execute(app, inputs, config, conn, simulated, answers: dict[str, str] | None = None, resume_limits: bool = True) -> "paused" | "waiting" | "interrupted" | "done"`; event `waiting` s `delta.questions`.
+- `execute(app, inputs, config, conn, simulated, answers: dict[str, str] | None = None) -> "paused" | "waiting" | "interrupted" | "done"`; event `waiting` s `delta.questions`.
 - `real.plan` + `plan.md`: `{clarifications}` blok. `fake.plan` zapíše `clarifications` do výsledku, aby test viděl, že plan je dostal.
 
 Testy (scénáře):
@@ -53,7 +53,7 @@ Testy (scénáře):
 - `clarify-answered` (`plan: [{unclear: …}, ok]`): odpověď `"měř LCP"` → `[x]`, `plan` 2×.
 - `clarify-max-rounds` (`plan: {unclear: …}`): 2 odpovědi → `[?]`, `plan` 3×, žádný třetí dotaz.
 - `parallel-clarify`: a1 nejasné, b1 projde → `waiting`, b1 `[x]`, a1 `[ ]`; `questions` vrací jen a1; po odpovědi `done`, a1 `[x]`, b1 `open_pr` 1×.
-- smíšené: rate limit + dotaz → `paused`; `execute(answers=…, resume_limits=False)` neopakuje limitovaný uzel.
+- smíšené (`clarify-rate-limit`): rate limit + dotaz → `paused`, dotaz je v `questions`; jeden resume s odpovědí → `done`.
 
 ### 3. CLI + dashboard: odpověď na dotaz
 
