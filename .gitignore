@@ -1,6 +1,7 @@
-harness.db
+harness.db*
 .venv/
 __pycache__/
 .sim/
 *.egg-info/
 .superpowers/
+.playwright-mcp/

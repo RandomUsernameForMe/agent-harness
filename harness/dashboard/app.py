@@ -60,7 +60,7 @@ def create_app(home: Path) -> FastAPI:
         sim = sims.get(run_id)
         if sim is None:
             raise HTTPException(404, "only simulations started from this dashboard have live state")
-        return {"next": list(sim.app.get_state(sim.config).next), "simulated": True}
+        return {"next": list(sim.app.get_state(sim.config).next), "running": sim.lock.locked(), "simulated": True}
 
     @app.get("/events/stream")
     async def stream(after: int = 0):

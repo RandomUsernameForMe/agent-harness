@@ -62,5 +62,20 @@ def test_step_mode(client):
         time.sleep(0.05)
 
 
+def test_state_reports_running_step(client):
+    run_id = client.post("/simulate", json={"scenario": "happy-path", "step": True, "delay": 0.5}).json()["run_id"]
+    deadline = time.time() + 5
+    while client.get(f"/runs/{run_id}/state").json()["next"] != ["pick_task"]:
+        assert time.time() < deadline
+        time.sleep(0.05)
+    client.post(f"/runs/{run_id}/step")  # pick_task is instant (not a fake node)
+    while client.get(f"/runs/{run_id}/state").json()["next"] != ["preflight"]:
+        assert time.time() < deadline
+        time.sleep(0.05)
+    client.post(f"/runs/{run_id}/step")  # preflight sleeps 0.5 s
+    time.sleep(0.1)
+    assert client.get(f"/runs/{run_id}/state").json()["running"] is True
+
+
 def test_state_unknown_run_404(client):
     assert client.get("/runs/nope/state").status_code == 404
