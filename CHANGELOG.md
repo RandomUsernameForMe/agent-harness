@@ -13,3 +13,4 @@
 ## [2026-10-01] - Dashboard frontend (graf, běhy, backlog, spotřeba, krokování); /state vrací running, tlačítko kroku čeká na doběhnutí
 ## [2026-10-01] - Pilotní konfigurace (ověřené verify příkazy), BACKLOG s gp-01/gp-02, README
 ## [2026-10-01] - První reálný běh: PR guth-pictures#6 a #7 (pauza na limit + resume, kill + resume)
+## [2026-10-01] - Opravy z finálního review: timeout zabíjí strom procesů, billing kontrola i při --resume, guard vidí přesuny, název s — se nezkracuje, tělo PR přes soubor, worker nemůže push/gh

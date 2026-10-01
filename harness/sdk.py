@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,11 +36,25 @@ def render_prompt(name: str, **fields) -> str:
     return (PROMPTS / name).read_text(encoding="utf-8").format(**fields)
 
 
+def _no_publish_env() -> dict[str, str]:
+    """Env for workers: git cannot push and gh is logged out. Bash patterns alone are easy to bypass
+    (`git -C . push`), and the harness pushes from its own process, not the worker's."""
+    # ponytail: blocks origin + stored credentials; a push via ssh key to an explicit URL still works — sandbox in a later phase
+    return {
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "remote.origin.pushurl", "GIT_CONFIG_VALUE_0": "harness-push-disabled:",
+        "GIT_CONFIG_KEY_1": "credential.helper", "GIT_CONFIG_VALUE_1": "",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GH_TOKEN": "",
+        "GH_CONFIG_DIR": tempfile.mkdtemp(prefix="harness-gh-"),
+    }
+
+
 def worker_options(*, cwd, model: str, tools: list[str], disallowed=(),
                    permission_mode: str = "acceptEdits", max_turns: int = 60) -> ClaudeAgentOptions:
     # strict_mcp_config drops the account's claude.ai connectors (Gmail, Drive, Notion…) from workers
     return ClaudeAgentOptions(
-        cwd=str(cwd), model=model, setting_sources=["project"], strict_mcp_config=True,
+        cwd=str(cwd), model=model, setting_sources=["project"], strict_mcp_config=True, env=_no_publish_env(),
         system_prompt={"type": "preset", "preset": "claude_code", "append": WORKER_APPEND},
         allowed_tools=list(tools), disallowed_tools=list(disallowed),
         permission_mode=permission_mode, max_turns=max_turns,

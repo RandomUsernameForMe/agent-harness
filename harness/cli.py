@@ -1,4 +1,5 @@
 import argparse
+import os
 import sqlite3
 import sys
 import tempfile
@@ -13,6 +14,7 @@ from .nodes.common import make_pick_task, make_report
 from .nodes.real import git, real_nodes, worktree_path
 from .projects import load_config
 from .runner import execute, run_config
+from .sdk import check_billing
 from .simulate import prepare
 
 
@@ -52,6 +54,10 @@ def cmd_simulate(args) -> int:
 
 def cmd_run(args) -> int:
     cfg = load_config(args.home / "projects.yaml")
+    # preflight checks this per task, but --resume jumps straight back into implement
+    if err := check_billing(cfg.billing, os.environ):
+        print(err, file=sys.stderr)
+        return 2
     backlog_path = args.home / "BACKLOG.md"
     conn, saver = open_db(args.home)
     nodes = real_nodes(cfg) | {"pick_task": make_pick_task(backlog_path, cfg), "report": make_report(backlog_path)}

@@ -1,5 +1,6 @@
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 from ..guard import check_diff, new_failures
@@ -7,10 +8,24 @@ from ..projects import Config, Project
 from ..sdk import NO_PUBLISH, READ_TOOLS, WRITE_TOOLS, check_billing, render_prompt, run_agent
 
 
+def _kill_tree(proc: subprocess.Popen) -> None:
+    # subprocess timeout kills only cmd.exe; grandchildren (node/vitest) keep the pipes open forever
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        proc.kill()
+
+
 def sh(cmd: str, cwd, timeout: int = 900) -> tuple[bool, str]:
-    p = subprocess.run(cmd, cwd=cwd, shell=True, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace", timeout=timeout)
-    return p.returncode == 0, p.stdout + p.stderr
+    proc = subprocess.Popen(cmd, cwd=cwd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, encoding="utf-8", errors="replace")
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        out, _ = proc.communicate()
+        return False, f"{out}\n[harness] timeout after {timeout}s: {cmd}"
+    return proc.returncode == 0, out
 
 
 def git(args: list[str], cwd) -> str:
@@ -37,6 +52,14 @@ def commit_if_dirty(worktree, message: str) -> bool:
         return False
     git(["commit", "-q", "-m", message], worktree)
     return True
+
+
+def staged_changes(worktree) -> tuple[list[str], int]:
+    """Stage everything; return changed paths (both sides of moves, unquoted) and diff line count."""
+    git(["add", "-A"], worktree)
+    names = git(["diff", "--cached", "--no-renames", "-z", "--name-only"], worktree)
+    numstat = git(["diff", "--cached", "--no-renames", "--numstat"], worktree)
+    return [p for p in names.split("\0") if p], numstat_lines(numstat)
 
 
 def numstat_lines(text: str) -> int:
@@ -114,9 +137,7 @@ def real_nodes(cfg: Config) -> dict:
         p, wt = proj(s), s["worktree"]
         results = [(cmd, *sh(cmd, wt)) for cmd in p.verify]
         new = new_failures(s.get("baseline_failures") or [], [c for c, ok, _ in results if not ok])
-        git(["add", "-A"], wt)
-        changed = git(["diff", "--cached", "--name-only"], wt).splitlines()
-        lines = numstat_lines(git(["diff", "--cached", "--numstat"], wt))
+        changed, lines = staged_changes(wt)
         failures = [f"$ {c}\n{out[-1500:]}" for c, ok, out in results if c in new]
         if violation := check_diff(changed, lines, p.allowed, p.max_diff_lines):
             failures.insert(0, f"guard: {violation}")
@@ -131,9 +152,13 @@ def real_nodes(cfg: Config) -> dict:
                                   cwd=wt, capture_output=True, text=True, encoding="utf-8").stdout.strip()
         if existing.startswith("http"):
             return {"outcome": "pr_opened", "pr_url": existing}
-        out = subprocess.run(["gh", "pr", "create", "--draft", "--base", p.base, "--head", s["branch"],
-                              "--title", f"[harness] {t['title']}", "--body", _pr_body(s)],
-                             cwd=wt, check=True, capture_output=True, text=True, encoding="utf-8").stdout
+        # body via file: Windows caps a command line at 32k chars and a long plan would exceed it
+        with tempfile.TemporaryDirectory() as tmp:
+            body = Path(tmp) / "body.md"
+            body.write_text(_pr_body(s), encoding="utf-8")
+            out = subprocess.run(["gh", "pr", "create", "--draft", "--base", p.base, "--head", s["branch"],
+                                  "--title", f"[harness] {t['title']}", "--body-file", str(body)],
+                                 cwd=wt, check=True, capture_output=True, text=True, encoding="utf-8").stdout
         return {"outcome": "pr_opened", "pr_url": out.strip().splitlines()[-1]}
 
     return {"preflight": preflight, "make_worktree": make_worktree, "plan": plan, "setup": setup,

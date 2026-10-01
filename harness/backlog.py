@@ -17,7 +17,10 @@ class Task:
     description: str
 
 
-def _title(rest: str) -> str:
+def _title(rest: str, status: str) -> str:
+    # only finished tasks carry a " → url" / " — note" suffix; an open title may contain "—" itself
+    if status == " ":
+        return rest.strip()
     return SUFFIX_RE.split(rest, maxsplit=1)[0].strip()
 
 
@@ -29,7 +32,7 @@ def parse(text: str) -> list[Task]:
             project, current = m["project"], None
         elif (m := TASK_RE.match(line)) and project:
             current = {"id": m["id"], "project": project, "priority": int(m["prio"]),
-                       "title": _title(m["rest"]), "status": m["status"], "description": []}
+                       "title": _title(m["rest"], m["status"]), "status": m["status"], "description": []}
             raw.append(current)
         elif current is not None and line.startswith("  ") and line.strip():
             current["description"].append(line.strip())
@@ -55,6 +58,6 @@ def set_status(text: str, task_id: str, status: str, note: str = "") -> str:
         m = TASK_RE.match(body)
         if m and m["id"] == task_id:
             eol = line[len(body):]
-            lines[i] = f"- [{status}] P{m['prio']} {task_id} {_title(m['rest'])}{note}{eol}"
+            lines[i] = f"- [{status}] P{m['prio']} {task_id} {_title(m['rest'], m['status'])}{note}{eol}"
             return "".join(lines)
     raise KeyError(task_id)
