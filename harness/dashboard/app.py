@@ -11,8 +11,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .. import backlog, events
-from ..graph import graph_mermaid
-from ..runner import execute
+from ..graph import graph_mermaid, worker_mermaid
+from ..runner import execute, pending
 from ..simulate import Simulation, prepare
 
 STATIC = Path(__file__).parent / "static"
@@ -30,7 +30,7 @@ def create_app(home: Path) -> FastAPI:
     app = FastAPI(title="harness")
     conn, saver = open_db(home)
     sims: dict[str, Simulation] = {}
-    mermaid = graph_mermaid()
+    mermaid = {"mermaid": graph_mermaid(), "worker": worker_mermaid()}
 
     def scenarios() -> dict[str, Path]:
         return {p.stem: p for p in sorted((home / "scenarios").glob("*.yaml"))}
@@ -45,7 +45,7 @@ def create_app(home: Path) -> FastAPI:
 
     @app.get("/graph")
     def graph():
-        return {"mermaid": mermaid}
+        return mermaid
 
     @app.get("/runs")
     def runs():
@@ -60,7 +60,7 @@ def create_app(home: Path) -> FastAPI:
         sim = sims.get(run_id)
         if sim is None:
             raise HTTPException(404, "only simulations started from this dashboard have live state")
-        return {"next": list(sim.app.get_state(sim.config).next), "running": sim.lock.locked(), "simulated": True}
+        return {"next": pending(sim.app, sim.config), "running": sim.lock.locked(), "simulated": True}
 
     @app.get("/events/stream")
     async def stream(after: int = 0):

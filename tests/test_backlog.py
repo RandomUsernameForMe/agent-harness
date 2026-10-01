@@ -1,6 +1,6 @@
 import pytest
 
-from harness.backlog import next_task, parse, set_status
+from harness.backlog import add_tasks, parse, set_status
 
 SAMPLE = """# Backlog
 
@@ -37,19 +37,8 @@ def test_duplicate_id_raises():
         parse("## p\n- [ ] P1 a-1 one\n- [ ] P2 a-1 two\n")
 
 
-def test_next_task_priority_then_file_order():
-    tasks = parse("## p\n- [ ] P2 a-1 A\n- [ ] P1 b-1 B\n- [ ] P1 c-1 C\n- [x] P1 d-1 D\n")
-    assert next_task(tasks, {"p"}).id == "b-1"
-
-
 def test_unsafe_id_is_not_a_task():
     assert parse("## p\n- [ ] P1 a;rm-rf Bad\n") == []
-
-
-def test_next_task_filters_projects_and_status():
-    tasks = parse(SAMPLE)
-    assert next_task(tasks, {"guth-pictures"}).id == "gp-01"
-    assert next_task(tasks, {"other"}) is None
 
 
 def test_set_status_replaces_suffix_and_keeps_rest():
@@ -69,3 +58,24 @@ def test_set_status_preserves_crlf():
 def test_set_status_unknown_id():
     with pytest.raises(KeyError):
         set_status(SAMPLE, "nope", "x")
+
+
+def test_proposal_status_parsed_and_title_kept():
+    [t] = parse("## p\n- [~] P3 p-todo-abc123 TODO: fix — later\n  src/a.ts:3\n")
+    assert (t.status, t.title, t.description) == ("~", "TODO: fix — later", "src/a.ts:3")
+
+
+def test_add_tasks_appends_to_existing_section():
+    text = "## a\n- [ ] P1 a-1 A\n  desc\n\n## b\n- [ ] P1 b-1 B\n"
+    out = add_tasks(text, "a", ["- [~] P3 a-2 New", "  where"])
+    assert out == "## a\n- [ ] P1 a-1 A\n  desc\n- [~] P3 a-2 New\n  where\n\n## b\n- [ ] P1 b-1 B\n"
+
+
+def test_add_tasks_creates_section_and_keeps_crlf():
+    out = add_tasks("## a\r\n- [ ] P1 a-1 A\r\n", "c", ["- [~] P3 c-1 New"])
+    assert out == "## a\r\n- [ ] P1 a-1 A\r\n\r\n## c\r\n- [~] P3 c-1 New\r\n"
+    assert parse(out)[-1].project == "c"
+
+
+def test_add_tasks_to_empty_file():
+    assert add_tasks("", "c", ["- [~] P3 c-1 New"]) == "## c\n- [~] P3 c-1 New\n"

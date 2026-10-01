@@ -14,3 +14,5 @@
 ## [2026-10-01] - Pilotní konfigurace (ověřené verify příkazy), BACKLOG s gp-01/gp-02, README
 ## [2026-10-01] - První reálný běh: PR guth-pictures#6 a #7 (pauza na limit + resume, kill + resume)
 ## [2026-10-01] - Opravy z finálního review: timeout zabíjí strom procesů, billing kontrola i při --resume, guard vidí přesuny, název s — se nezkracuje, tělo PR přes soubor, worker nemůže push/gh
+## [2026-10-01] - Design spec a plán fáze 2 (paralelní workers, priority napříč projekty, sken)
+## [2026-10-01] - Fáze 2: worker subgraf + Send fan-out (max_parallel, 1 úkol/projekt/dávku), pauza na rate limit přes interrupt (sourozenci doběhnou), ranking P → fokus secondbrainu → weight, harness queue/scan, návrhy [~], sloupec worker v event logu, dashboard se dvěma diagramy
