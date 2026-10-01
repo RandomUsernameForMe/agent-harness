@@ -11,3 +11,4 @@
 ## [2026-10-01] - Skutečné uzly (worktree, Agent SDK, verify, draft PR), harness run/prune
 ## [2026-10-01] - Dashboard API (FastAPI, SSE, spouštění simulací)
 ## [2026-10-01] - Dashboard frontend (graf, běhy, backlog, spotřeba, krokování); /state vrací running, tlačítko kroku čeká na doběhnutí
+## [2026-10-01] - Pilotní konfigurace (ověřené verify příkazy), BACKLOG s gp-01/gp-02, README
