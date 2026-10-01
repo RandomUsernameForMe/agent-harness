@@ -77,8 +77,12 @@ def cmd_prune(args) -> int:
     return 0
 
 
-def _todo(args) -> int:
-    raise SystemExit("not implemented yet")
+def cmd_dashboard(args) -> int:
+    import uvicorn
+
+    from .dashboard.app import create_app
+    uvicorn.run(create_app(args.home), host="127.0.0.1", port=args.port)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -97,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--port", type=int, default=8765)
     sub.add_parser("prune")
     args = p.parse_args(argv)
-    handlers = {"simulate": cmd_simulate, "run": cmd_run, "dashboard": _todo, "prune": cmd_prune}
+    handlers = {"simulate": cmd_simulate, "run": cmd_run, "dashboard": cmd_dashboard, "prune": cmd_prune}
     return handlers[args.cmd](args)
 
 

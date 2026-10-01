@@ -9,3 +9,4 @@
 ## [2026-10-01] - CLI: harness simulate (plynulý i krokovací režim)
 ## [2026-10-01] - Agent SDK wrapper (subscription, rate limit), prompty, izolační spike: apiKeySource=none, bez globálních pluginů, claude.ai konektory vypnuté přes strict_mcp_config
 ## [2026-10-01] - Skutečné uzly (worktree, Agent SDK, verify, draft PR), harness run/prune
+## [2026-10-01] - Dashboard API (FastAPI, SSE, spouštění simulací)
