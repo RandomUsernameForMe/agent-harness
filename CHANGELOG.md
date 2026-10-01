@@ -7,3 +7,4 @@
 ## [2026-10-01] - LangGraph graf a sdílené uzly pick_task/report
 ## [2026-10-01] - Simulace: falešné uzly, 8 scénářů, runner s event logem
 ## [2026-10-01] - CLI: harness simulate (plynulý i krokovací režim)
+## [2026-10-01] - Agent SDK wrapper (subscription, rate limit), prompty, izolační spike: apiKeySource=none, bez globálních pluginů, claude.ai konektory vypnuté přes strict_mcp_config
