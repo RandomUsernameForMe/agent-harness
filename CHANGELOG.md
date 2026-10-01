@@ -5,3 +5,4 @@
 ## [2026-10-01] - Guard pro diff a baseline selhání
 ## [2026-10-01] - SQLite event log
 ## [2026-10-01] - LangGraph graf a sdílené uzly pick_task/report
+## [2026-10-01] - Simulace: falešné uzly, 8 scénářů, runner s event logem

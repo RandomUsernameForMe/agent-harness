@@ -1,0 +1,5 @@
+name: Vše projde napoprvé
+tasks:
+  - {project: demo, id: sim-01, title: "Demo úkol", priority: P1}
+nodes: {}
+delay: 0.8

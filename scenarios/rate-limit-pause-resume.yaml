@@ -1,0 +1,6 @@
+name: Rate limit během implementace, pak resume
+tasks:
+  - {project: demo, id: sim-01, title: "Demo úkol", priority: P1}
+nodes:
+  implement: [{rate_limit: 60}, ok]
+delay: 0.8

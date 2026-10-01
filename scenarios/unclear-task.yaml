@@ -1,0 +1,6 @@
+name: Plánovač označí zadání za nejasné
+tasks:
+  - {project: demo, id: sim-01, title: "Zlepšit výkon", priority: P1}
+nodes:
+  plan: {unclear: "Co přesně měřit?"}
+delay: 0.8

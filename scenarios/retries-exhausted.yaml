@@ -1,0 +1,6 @@
+name: Verify selže ve všech pokusech
+tasks:
+  - {project: demo, id: sim-01, title: "Demo úkol", priority: P1}
+nodes:
+  verify: [{fail: "tsc: 3 type errors"}]
+delay: 0.8
