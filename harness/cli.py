@@ -2,12 +2,17 @@ import argparse
 import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from . import events
-from .runner import execute
+from . import backlog, events
+from .graph import build_graph, initial_state
+from .nodes.common import make_pick_task, make_report
+from .nodes.real import git, real_nodes, worktree_path
+from .projects import load_config
+from .runner import execute, run_config
 from .simulate import prepare
 
 
@@ -45,6 +50,33 @@ def cmd_simulate(args) -> int:
     return 0
 
 
+def cmd_run(args) -> int:
+    cfg = load_config(args.home / "projects.yaml")
+    backlog_path = args.home / "BACKLOG.md"
+    conn, saver = open_db(args.home)
+    nodes = real_nodes(cfg) | {"pick_task": make_pick_task(backlog_path, cfg), "report": make_report(backlog_path)}
+    app = build_graph(nodes, saver)
+    run_id = args.resume or f"run-{time.strftime('%Y%m%d-%H%M%S')}"
+    inputs = None if args.resume else initial_state(run_id, cfg, simulated=False)
+    status = execute(app, inputs, run_config(run_id), conn, simulated=False)
+    print(f"{run_id} {status}")
+    if status == "paused":
+        print(f"resume: harness run --resume {run_id}")
+    return 0
+
+
+def cmd_prune(args) -> int:
+    cfg = load_config(args.home / "projects.yaml")
+    done = {t.id for t in backlog.parse((args.home / "BACKLOG.md").read_bytes().decode("utf-8")) if t.status == "x"}
+    for project in cfg.projects.values():
+        for task_id in done:
+            path = worktree_path(project, task_id)
+            if path.exists():
+                git(["worktree", "remove", "--force", str(path)], project.path)
+                print(f"removed {path}")
+    return 0
+
+
 def _todo(args) -> int:
     raise SystemExit("not implemented yet")
 
@@ -65,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--port", type=int, default=8765)
     sub.add_parser("prune")
     args = p.parse_args(argv)
-    handlers = {"simulate": cmd_simulate, "run": _todo, "dashboard": _todo, "prune": _todo}
+    handlers = {"simulate": cmd_simulate, "run": cmd_run, "dashboard": _todo, "prune": cmd_prune}
     return handlers[args.cmd](args)
 
 
