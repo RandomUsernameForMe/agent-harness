@@ -48,3 +48,27 @@ def test_missing_verify_raises(tmp_path):
 def test_bad_billing_raises(tmp_path):
     with pytest.raises(ValueError, match="billing"):
         load_config(write(tmp_path, "billing: free\nprojects: {}\n"))
+
+
+def test_phase2_fields_default(tmp_path):
+    cfg = load_config(write(tmp_path, "projects:\n  demo: {path: ., base: main, verify: [x]}\n"))
+    assert cfg.max_parallel == 2
+    assert cfg.secondbrain is None
+    assert cfg.projects["demo"].weight == 0
+
+
+def test_phase2_fields_set(tmp_path):
+    cfg = load_config(write(tmp_path, """
+max_parallel: 3
+secondbrain: {path: ../brain, days: 7}
+projects:
+  demo: {path: ., base: main, verify: [x], weight: 2}
+"""))
+    assert cfg.max_parallel == 3
+    assert cfg.secondbrain == ((tmp_path / ".." / "brain").resolve(), 7)
+    assert cfg.projects["demo"].weight == 2
+
+
+def test_max_parallel_must_be_positive(tmp_path):
+    with pytest.raises(ValueError, match="max_parallel"):
+        load_config(write(tmp_path, "max_parallel: 0\nprojects: {}\n"))

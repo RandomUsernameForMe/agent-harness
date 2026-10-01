@@ -31,3 +31,36 @@ def test_simulate_survives_cp1252_console(tmp_path):
 def test_simulate_unknown(tmp_path):
     (tmp_path / "scenarios").mkdir()
     assert main(["--home", str(tmp_path), "simulate", "nope"]) == 2
+
+
+def test_queue_ranks_with_secondbrain_focus(tmp_path, capsys):
+    brain = tmp_path / "brain" / "Thoughts"
+    brain.mkdir(parents=True)
+    import datetime
+    (brain / f"{datetime.date.today()}.md").write_text("dnes beta", encoding="utf-8")
+    (tmp_path / "projects.yaml").write_text(
+        "secondbrain: {path: brain}\nprojects:\n  alpha: {path: ., base: main, verify: [x]}\n"
+        "  beta: {path: ., base: main, verify: [x]}\n", encoding="utf-8")
+    (tmp_path / "BACKLOG.md").write_text("## alpha\n- [ ] P1 a-1 A\n## beta\n- [ ] P1 b-1 B\n- [~] P1 b-2 navrh\n",
+                                         encoding="utf-8")
+    assert main(["--home", str(tmp_path), "queue"]) == 0
+    out = capsys.readouterr().out
+    assert "alpha=0, beta=1" in out
+    assert out.index("b-1") < out.index("a-1") and "b-2" not in out
+
+
+def test_scan_write_appends_proposals_once(tmp_path, capsys):
+    from tests.test_real_git import make_repo
+    from tests.test_scan import commit_files
+    repo = make_repo(tmp_path)
+    commit_files(repo, {"a.py": "# FIXME: crash on empty input\n"})
+    (tmp_path / "projects.yaml").write_text(f"projects:\n  demo: {{path: '{repo.as_posix()}', base: main, verify: [x]}}\n",
+                                            encoding="utf-8")
+    (tmp_path / "BACKLOG.md").write_text("## demo\n- [x] P1 d-1 hotovo\n", encoding="utf-8")
+    assert main(["--home", str(tmp_path), "scan", "--write"]) == 0
+    text = (tmp_path / "BACKLOG.md").read_text(encoding="utf-8")
+    assert "- [~] P3 demo-todo-" in text and "FIXME: crash on empty input" in text
+    assert main(["--home", str(tmp_path), "scan", "--write"]) == 0
+    assert (tmp_path / "BACKLOG.md").read_text(encoding="utf-8") == text
+    assert "no new proposals" in capsys.readouterr().out
+    assert main(["--home", str(tmp_path), "scan", "--project", "nope"]) == 2

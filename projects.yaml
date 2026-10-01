@@ -5,6 +5,9 @@ defaults:
 billing: subscription
 max_tasks_per_run: 3
 quota_threshold: 0.7
+max_parallel: 2
+# fokus: kolik záznamů v Thoughts/ a Inbox/ za posledních 14 dní zmiňuje projekt → rozhoduje remízy priorit
+secondbrain: {path: ../secondbrain, days: 14}
 
 projects:
   guth-pictures:

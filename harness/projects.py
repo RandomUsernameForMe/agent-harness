@@ -16,6 +16,7 @@ class Project:
     allowed: tuple[str, ...]
     max_attempts: int
     max_diff_lines: int
+    weight: int = 0
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,8 @@ class Config:
     max_tasks_per_run: int
     quota_threshold: float
     projects: dict[str, Project]
+    max_parallel: int = 2
+    secondbrain: tuple[Path, int] | None = None  # (vault path, look-back days)
 
 
 def load_config(path: Path) -> Config:
@@ -37,7 +40,13 @@ def load_config(path: Path) -> Config:
         name: _project(name, spec, defaults, path.parent)
         for name, spec in (raw.get("projects") or {}).items()
     }
-    return Config(billing, raw.get("max_tasks_per_run", 3), raw.get("quota_threshold", 0.7), projects)
+    max_parallel = raw.get("max_parallel", 2)
+    if not isinstance(max_parallel, int) or max_parallel < 1:
+        raise ValueError(f"max_parallel must be a positive int, got {max_parallel!r}")
+    brain = raw.get("secondbrain")
+    secondbrain = ((path.parent / brain["path"]).resolve(), brain.get("days", 14)) if brain else None
+    return Config(billing, raw.get("max_tasks_per_run", 3), raw.get("quota_threshold", 0.7), projects,
+                  max_parallel, secondbrain)
 
 
 def _project(name: str, spec: dict, defaults: dict, root: Path) -> Project:
@@ -53,4 +62,5 @@ def _project(name: str, spec: dict, defaults: dict, root: Path) -> Project:
         allowed=tuple(spec.get("allowed", [])),
         max_attempts=spec.get("max_attempts", defaults.get("max_attempts", 3)),
         max_diff_lines=spec.get("max_diff_lines", defaults.get("max_diff_lines", 800)),
+        weight=spec.get("weight", 0),
     )

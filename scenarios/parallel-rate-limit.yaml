@@ -1,0 +1,6 @@
+name: Rate limit v jednom ze dvou paralelních workerů, pak resume
+max_parallel: 2
+tasks:
+  - {project: alpha, id: sim-a1, title: "Narazí na limit", priority: P1, nodes: {implement: [{rate_limit: 60}, ok]}}
+  - {project: beta, id: sim-b1, title: "Projde", priority: P1}
+delay: 0.8

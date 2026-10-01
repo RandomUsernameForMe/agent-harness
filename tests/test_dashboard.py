@@ -28,7 +28,8 @@ def wait_for(client, run_id, kind, timeout=10):
 
 
 def test_graph(client):
-    assert "verify" in client.get("/graph").json()["mermaid"]
+    g = client.get("/graph").json()
+    assert "pick_tasks" in g["mermaid"] and "verify" in g["worker"]
 
 
 def test_scenarios_listed(client):
@@ -52,7 +53,7 @@ def test_unknown_or_traversal_scenario_404(client):
 def test_step_mode(client):
     run_id = client.post("/simulate", json={"scenario": "happy-path", "step": True, "delay": 0}).json()["run_id"]
     deadline = time.time() + 5
-    while client.get(f"/runs/{run_id}/state").json()["next"] != ["pick_task"]:
+    while client.get(f"/runs/{run_id}/state").json()["next"] != ["pick_tasks"]:
         assert time.time() < deadline
         time.sleep(0.05)
     assert client.post(f"/runs/{run_id}/step").json() == {"ok": True}
@@ -65,10 +66,10 @@ def test_step_mode(client):
 def test_state_reports_running_step(client):
     run_id = client.post("/simulate", json={"scenario": "happy-path", "step": True, "delay": 0.5}).json()["run_id"]
     deadline = time.time() + 5
-    while client.get(f"/runs/{run_id}/state").json()["next"] != ["pick_task"]:
+    while client.get(f"/runs/{run_id}/state").json()["next"] != ["pick_tasks"]:
         assert time.time() < deadline
         time.sleep(0.05)
-    client.post(f"/runs/{run_id}/step")  # pick_task is instant (not a fake node)
+    client.post(f"/runs/{run_id}/step")  # pick_tasks is instant (not a fake node)
     while client.get(f"/runs/{run_id}/state").json()["next"] != ["preflight"]:
         assert time.time() < deadline
         time.sleep(0.05)
@@ -79,3 +80,21 @@ def test_state_reports_running_step(client):
 
 def test_state_unknown_run_404(client):
     assert client.get("/runs/nope/state").status_code == 404
+
+
+def wait_next(client, run_id, expected, timeout=5):
+    deadline = time.time() + timeout
+    while (st := client.get(f"/runs/{run_id}/state").json())["next"] != expected or st["running"]:
+        assert time.time() < deadline, st
+        time.sleep(0.05)
+
+
+def test_step_mode_shows_parallel_workers(client):
+    run_id = client.post("/simulate", json={"scenario": "parallel-projects", "step": True, "delay": 0}).json()["run_id"]
+    wait_next(client, run_id, ["pick_tasks"])
+    client.post(f"/runs/{run_id}/step")
+    wait_next(client, run_id, ["preflight", "preflight"])
+    client.post(f"/runs/{run_id}/step")
+    wait_next(client, run_id, ["make_worktree", "make_worktree"])
+    workers = {e["worker"] for e in client.get(f"/runs/{run_id}/events").json() if e["worker"]}
+    assert workers == {"sim-a1", "sim-b1"}

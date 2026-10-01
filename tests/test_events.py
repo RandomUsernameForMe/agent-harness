@@ -34,3 +34,18 @@ def test_latest_rate_limit(tmp_path):
     events.log(conn, "r", "end", node="plan", rate_limit={"utilization": 0.2})
     events.log(conn, "r", "end", node="implement", rate_limit={"utilization": 0.5})
     assert events.latest_rate_limit(conn) == {"utilization": 0.5}
+
+
+def test_worker_column_and_migration_of_phase1_db(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.db"
+    old = sqlite3.connect(db)
+    old.execute(events.SCHEMA.replace("  worker TEXT,\n", ""))
+    old.execute("INSERT INTO events (run_id, ts, kind) VALUES ('r0', 1, 'run_start')")
+    old.commit()
+    old.close()
+    conn = events.connect(db)
+    events.log(conn, "r1", "start", node="plan", worker="gp-01")
+    rows = events.events_after(conn)
+    assert [(r["run_id"], r["worker"]) for r in rows] == [("r0", None), ("r1", "gp-01")]
+    events.connect(db)  # second migration is a no-op

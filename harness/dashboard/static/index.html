@@ -19,9 +19,13 @@
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 8px; }
-  #graph svg { max-width:100%; height:auto; }
-  #graph .node.active rect, #graph .node.active polygon, #graph .node.active circle { stroke:var(--accent) !important; stroke-width:3px !important; fill:color-mix(in srgb, var(--accent) 25%, transparent) !important; }
-  #graph .node.error rect { stroke:var(--bad) !important; stroke-width:3px !important; }
+  .graph svg { max-width:100%; height:auto; }
+  .graph .node.active rect, .graph .node.active polygon, .graph .node.active circle { stroke:var(--accent) !important; stroke-width:3px !important; fill:color-mix(in srgb, var(--accent) 25%, transparent) !important; }
+  .graph .node.error rect { stroke:var(--bad) !important; stroke-width:3px !important; }
+  .graphs { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr); gap:12px; align-items:start; }
+  @media (max-width: 600px) { .graphs { grid-template-columns:1fr; } }
+  h3 { font-size:12px; color:var(--muted); margin:0 0 4px; font-weight:500; }
+  #workers { margin:8px 0 0; display:flex; gap:6px; flex-wrap:wrap; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
   tr.sel { background:color-mix(in srgb, var(--accent) 12%, transparent); }
@@ -45,7 +49,11 @@
   <span id="status" class="muted"></span>
 </header>
 <main>
-  <section><h2>Graf</h2><div id="graph"></div><h2 style="margin-top:12px">Detail uzlu</h2><pre id="detail">Klikni na uzel nebo event.</pre></section>
+  <section><h2>Graf</h2>
+    <div class="graphs"><div><h3>Běh (dávky přes Send)</h3><div id="graph" class="graph"></div></div>
+      <div><h3>Worker (subgraf, jeden na úkol)</h3><div id="wgraph" class="graph"></div></div></div>
+    <div id="workers" aria-live="polite"></div>
+    <h2 style="margin-top:12px">Detail uzlu</h2><pre id="detail">Klikni na uzel nebo event.</pre></section>
   <section><h2>Běhy</h2><div class="scroll"><table id="runs"></table></div>
     <h2 style="margin-top:12px">Události běhu</h2><div class="scroll"><table id="events"></table></div></section>
   <section><h2>Backlog</h2><table id="backlog"></table></section>
@@ -56,22 +64,37 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const api = async (path, opts) => { const r = await fetch(path, opts); if (!r.ok) throw new Error(await r.text()); return r.json(); };
-let selectedRun = null, lastEventId = 0, lastNodeData = {};
+let selectedRun = null, lastEventId = 0, lastNodeData = {}, active = {};
 
-function nodeEl(name) { return document.querySelector(`#graph [id*="flowchart-${name}-"]`); }
-function highlight(name, cls) {
-  document.querySelectorAll("#graph .node").forEach((n) => n.classList.remove("active", "error"));
-  const el = name && nodeEl(name);
-  if (el) el.classList.add(cls);
+function nodeEl(name) { return document.querySelector(`.graph [id*="flowchart-${name}-"]`); }
+function paint(marks) {
+  document.querySelectorAll(".graph .node").forEach((n) => n.classList.remove("active", "error"));
+  marks.forEach(([name, cls]) => nodeEl(name)?.classList.add(cls));
+}
+// active = { workerId|"": {node, cls} } — one entry per running worker, "" for the parent graph
+function track(e) {
+  if (!e.node) return;
+  const key = e.worker ?? "";
+  if (e.kind === "start") active[key] = { node: e.node, cls: "active" };
+  else if (e.kind === "error") active[key] = { node: e.node, cls: "error" };
+  else if (e.kind === "end" && (e.node === "report" || e.node === "pick_tasks")) delete active[key];
+}
+function paintActive() {
+  const entries = Object.entries(active);
+  const marks = entries.map(([, a]) => [a.node, a.cls]);
+  if (entries.some(([w]) => w)) marks.push(["worker", "active"]);
+  paint(marks);
+  $("workers").innerHTML = entries.filter(([w]) => w).map(([w, a]) =>
+    `<span class="tag">${esc(w)} → ${esc(a.node)}</span>`).join("");
 }
 
 async function renderGraph() {
-  const { mermaid: src } = await api("/graph");
+  const { mermaid: src, worker } = await api("/graph");
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
   mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default" });
-  const { svg } = await mermaid.render("g", src);
-  $("graph").innerHTML = svg;
-  $("graph").querySelectorAll(".node").forEach((n) => {
+  $("graph").innerHTML = (await mermaid.render("g1", src)).svg;
+  $("wgraph").innerHTML = (await mermaid.render("g2", worker)).svg;
+  document.querySelectorAll(".graph .node").forEach((n) => {
     const name = n.id.replace(/^.*?flowchart-/, "").replace(/-\d+$/, "");
     n.style.cursor = "pointer";
     n.onclick = () => { $("detail").textContent = JSON.stringify(lastNodeData[name] ?? { node: name, info: "zatím bez dat v tomto běhu" }, null, 2); };
@@ -91,12 +114,12 @@ async function loadRuns() {
 }
 
 async function selectRun(runId) {
-  selectedRun = runId; lastNodeData = {};
+  selectedRun = runId; lastNodeData = {}; active = {};
   const evs = await api(`/runs/${encodeURIComponent(runId)}/events`);
   $("events").innerHTML = "";
-  evs.forEach(addEventRow);
-  const last = evs.filter((e) => e.node).at(-1);
-  highlight(last?.node, last?.kind === "error" ? "error" : "active");
+  evs.forEach((e) => { addEventRow(e); track(e); });
+  if (["run_end", "paused"].includes(evs.at(-1)?.kind)) active = {};
+  paintActive();
   await Promise.all([loadRuns(), loadBacklog(), refreshStepButton()]);
 }
 
@@ -104,7 +127,7 @@ function addEventRow(e) {
   if (e.node && e.kind !== "start") lastNodeData[e.node] = e;
   const t = new Date(e.ts * 1000).toLocaleTimeString();
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td class="muted">${t}</td><td>${esc(e.node ?? "")}</td><td class="k-${esc(e.kind)}">${esc(e.kind)}</td>`;
+  tr.innerHTML = `<td class="muted">${t}</td><td class="muted">${esc(e.worker ?? "")}</td><td>${esc(e.node ?? "")}</td><td class="k-${esc(e.kind)}">${esc(e.kind)}</td>`;
   tr.style.cursor = "pointer";
   tr.onclick = () => { $("detail").textContent = JSON.stringify(e, null, 2); };
   $("events").prepend(tr);
@@ -133,7 +156,7 @@ async function refreshStepButton() {
     $("step").disabled = st.running || st.next.length === 0;
     if (st.running) { $("status").textContent = "krok běží…"; setTimeout(refreshStepButton, 300); return; }
     $("status").textContent = st.next.length ? `čeká před: ${st.next.join(", ")}` : "";
-    if (st.next.length) highlight(st.next[0], "active");
+    if (st.next.length) paint([...st.next, ...(st.next.includes("pick_tasks") ? [] : ["worker"])].map((n) => [n, "active"]));
   } catch { $("step").disabled = true; }
 }
 
@@ -156,9 +179,10 @@ function listen() {
     lastEventId = e.id;
     if (e.run_id === selectedRun) {
       addEventRow(e);
-      if (e.node) highlight(e.node, e.kind === "error" ? "error" : "active");
-      if (e.kind === "end" && (e.node === "report" || e.node === "pick_task")) loadBacklog();
-      if (["run_end", "paused"].includes(e.kind)) { highlight(null); $("status").textContent = e.kind; }
+      track(e);
+      if (["run_end", "paused"].includes(e.kind)) { active = {}; $("status").textContent = e.kind; }
+      paintActive();
+      if (e.kind === "end" && (e.node === "report" || e.node === "pick_tasks")) loadBacklog();
       if (e.kind === "end") refreshStepButton();
     }
     if (["run_start", "run_end", "paused"].includes(e.kind)) loadRuns();

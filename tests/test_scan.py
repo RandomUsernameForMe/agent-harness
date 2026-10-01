@@ -1,0 +1,50 @@
+from harness.backlog import parse
+from harness.nodes.real import git
+from harness.scan import new_proposals, proposal_lines, scan_project
+from tests.test_real_git import make_repo, project
+
+
+def commit_files(repo, files: dict[str, str]):
+    for rel, text in files.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "todos"], repo)
+    git(["push", "-q", "origin", "main"], repo)
+
+
+def test_scan_reads_origin_base_not_working_copy(tmp_path):
+    repo = make_repo(tmp_path)
+    commit_files(repo, {"src/a.ts": "x\n// TODO: handle empty album\n", "lib/b.py": "# FIXME broken on Windows\n",
+                        "c.txt": "TODOS are not markers\n", "docs/plan.md": "- TODO: list\n"})
+    (repo / "wip.ts").write_text("// TODO: uncommitted\n", encoding="utf-8")
+    props = scan_project(project(repo))
+    assert [(p.path, p.line, p.title) for p in props] == [
+        ("lib/b.py", 1, "FIXME: broken on Windows"), ("src/a.ts", 2, "TODO: handle empty album")]
+    assert all(p.id.startswith("demo-todo-") and len(p.id) == len("demo-todo-") + 6 for p in props)
+
+
+def test_scan_ids_stable_when_line_moves_and_limit_applies(tmp_path):
+    repo = make_repo(tmp_path)
+    commit_files(repo, {f"f{i}.py": f"# TODO item {i}\n" for i in range(8)})
+    first = scan_project(project(repo), limit=5)
+    assert len(first) == 5
+    commit_files(repo, {"f0.py": "\n\n# TODO item 0\n"})
+    assert scan_project(project(repo), limit=5)[0].id == first[0].id
+
+
+def test_scan_without_markers_is_empty(tmp_path):
+    assert scan_project(project(make_repo(tmp_path))) == []
+
+
+def test_new_proposals_skip_ids_in_backlog_and_lines_parse(tmp_path):
+    repo = make_repo(tmp_path)
+    commit_files(repo, {"a.py": "# TODO one\n# TODO two\n"})
+    props = scan_project(project(repo))
+    text = "## demo\n" + "\n".join(proposal_lines(props[0])) + "\n"
+    [left] = new_proposals(props, parse(text))
+    assert left == props[1]
+    [t] = parse("## demo\n" + "\n".join(proposal_lines(left)) + "\n")
+    assert (t.status, t.priority, t.title) == ("~", 3, "TODO: two")
+    assert "a.py:2" in t.description

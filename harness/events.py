@@ -10,6 +10,7 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS events (
   run_id TEXT NOT NULL,
   ts REAL NOT NULL,
   node TEXT,
+  worker TEXT,
   kind TEXT NOT NULL,
   delta TEXT,
   usage TEXT,
@@ -25,6 +26,8 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute(SCHEMA)
+    if "worker" not in {r["name"] for r in conn.execute("PRAGMA table_info(events)")}:
+        conn.execute("ALTER TABLE events ADD COLUMN worker TEXT")  # phase-1 database
     conn.commit()
     return conn
 
@@ -41,11 +44,11 @@ def _row(r: sqlite3.Row) -> dict:
     return d
 
 
-def log(conn, run_id, kind, node=None, delta=None, usage=None, rate_limit=None, simulated=False) -> None:
+def log(conn, run_id, kind, node=None, delta=None, usage=None, rate_limit=None, simulated=False, worker=None) -> None:
     with _lock:
         conn.execute(
-            "INSERT INTO events (run_id, ts, node, kind, delta, usage, rate_limit, simulated) VALUES (?,?,?,?,?,?,?,?)",
-            (run_id, time.time(), node, kind, _dump(delta), _dump(usage), _dump(rate_limit), int(simulated)),
+            "INSERT INTO events (run_id, ts, node, worker, kind, delta, usage, rate_limit, simulated) VALUES (?,?,?,?,?,?,?,?,?)",
+            (run_id, time.time(), node, worker, kind, _dump(delta), _dump(usage), _dump(rate_limit), int(simulated)),
         )
         conn.commit()
 
