@@ -1,6 +1,6 @@
 # Harness — fáze 3: design
 
-Datum: 2026-10-02 · Stav: brainstorming s uživatelem (cíl, hosting, dotazy, chat, plánovač, notifikace), zbytek dotažen pod `/goal` jako defaulty — revize vítaná.
+Datum: 2026-10-02 · Stav: implementováno. Brainstorming s uživatelem (cíl, hosting, dotazy, chat, plánovač, notifikace), zbytek dotažen pod `/goal` jako defaulty — revize vítaná. Body 1–5 kritéria ověřeny; bod 6 (reálný bot) čeká na token.
 
 ## 1. Účel
 
