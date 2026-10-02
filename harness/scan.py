@@ -1,9 +1,8 @@
 import hashlib
 import re
 import subprocess
-from dataclasses import dataclass
-
 import sys
+from dataclasses import dataclass
 
 from . import backlog
 from .backlog import Task

@@ -1,4 +1,5 @@
 """Minimal Telegram Bot API client over stdlib urllib (same approach as secondbrain/bot/telegram.py)."""
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -26,8 +27,10 @@ class Telegram:
                 body = json.load(r)
         except urllib.error.HTTPError as e:  # its str() would carry the URL, i.e. the token
             raise TelegramError(f"{method}: {e.code} {e.reason}") from None
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
             raise TelegramError(f"{method}: {getattr(e, 'reason', e)}") from None
+        except ValueError:  # not JSON, e.g. a proxy's HTML error page
+            raise TelegramError(f"{method}: unreadable response") from None
         if not body.get("ok"):
             raise TelegramError(f"{method}: {body.get('description')}")
         return body["result"]

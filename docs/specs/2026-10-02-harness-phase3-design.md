@@ -24,6 +24,8 @@ Cíl uživatele: **harness běží autonomně na tomto PC, ovládání z mobilu.
 | Zamítnutý návrh | nový stav `[-]`; řádek zůstává, aby ho `scan` znovu nenavrhl | default |
 | Sken | démon spustí `scan --write` jednou denně na začátku okna (`serve.scan`, výchozí `true`) | default |
 | Pád běhu | notifikace + automatický start se vypne (jako `/pause`), aby deterministický pád neběžel dokola | default |
+| Rezerva kvóty | `quota` žije jen v jednom běhu → démon před automatickým startem čte poslední `utilization` z event logu; ≥ `quota_threshold` → čeká do `resets_at`. `/run` rezervu ignoruje (vědomé rozhodnutí uživatele) | review |
+| Neočekávaná výjimka v tiku | zaloguje se, 1× se pošle na Telegram, démon běží dál; stav (vč. offsetu) se uloží i při chybě | review |
 | Bezpečnost | updaty z jiného chatu než `HARNESS_TELEGRAM_CHAT_ID` se ignorují — příkazy spouští běhy a čerpají kvótu | default |
 
 ## 3. Graf

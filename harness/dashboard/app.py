@@ -40,9 +40,9 @@ def create_app(home: Path) -> FastAPI:
     def scenarios() -> dict[str, Path]:
         return {p.stem: p for p in sorted((home / "scenarios").glob("*.yaml"))}
 
-    def run_sim(sim: Simulation, inputs, answers: dict[str, str] | None = None) -> None:
+    def run_sim(sim: Simulation, inputs) -> None:
         with sim.lock:
-            execute(sim.app, inputs, sim.config, conn, simulated=True, answers=answers)
+            execute(sim.app, inputs, sim.config, conn, simulated=True)
 
     @app.get("/")
     def index():
@@ -121,11 +121,19 @@ def create_app(home: Path) -> FastAPI:
         sim = sims.get(run_id)
         if sim is None:
             raise HTTPException(404, "unknown simulation")
-        if sim.lock.locked():
+        # take the lock here, not in the thread: two quick answers must not both resume
+        if not sim.lock.acquire(blocking=False):
             raise HTTPException(409, "run is busy")
         if req.id not in {q["id"] for q in questions(sim.app, sim.config)}:
+            sim.lock.release()
             raise HTTPException(404, "unknown question")
-        threading.Thread(target=run_sim, args=(sim, None, {req.id: req.answer}), daemon=True).start()
+
+        def resume() -> None:
+            try:
+                execute(sim.app, None, sim.config, conn, simulated=True, answers={req.id: req.answer})
+            finally:
+                sim.lock.release()
+        threading.Thread(target=resume, args=(), daemon=True).start()
         return {"ok": True}
 
     return app

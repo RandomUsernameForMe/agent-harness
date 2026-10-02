@@ -7,7 +7,7 @@ import sys
 import time as _time
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -69,8 +69,10 @@ class Ctx:
     scan: Callable[[], int]
     simulated: bool = False
     state_path: Path | None = None
+    # handoff: the run thread only ever sets `result`; `busy` is set and cleared by the main loop alone
     busy: bool = False
-    result: tuple | None = None  # (run_id, status | Exception), set by the run thread
+    result: tuple | None = None  # (run_id, status | Exception)
+    last_error: str | None = None
 
 
 def say(ctx: Ctx, text: str, buttons: Buttons | None = None) -> int | None:
@@ -88,8 +90,12 @@ def _quiet(fn: Callable, *args) -> None:
         print(f"telegram: {e}", file=sys.stderr)
 
 
+def _backlog_text(ctx: Ctx) -> str:
+    return ctx.backlog_path.read_bytes().decode("utf-8") if ctx.backlog_path.exists() else ""
+
+
 def _tasks(ctx: Ctx) -> list[backlog.Task]:
-    return backlog.parse(ctx.backlog_path.read_bytes().decode("utf-8")) if ctx.backlog_path.exists() else []
+    return backlog.parse(_backlog_text(ctx))
 
 
 # --- runs -------------------------------------------------------------------------------------------------
@@ -103,16 +109,15 @@ def _start(ctx: Ctx, run_id: str, inputs, answers: dict[str, str] | None = None)
             outcome = execute(ctx.app, inputs, run_config(run_id), ctx.conn, ctx.simulated, answers=answers)
         except Exception as e:
             outcome = e
-        ctx.result = (run_id, outcome)
-        ctx.busy = False  # after result: the main loop reads busy first
+        ctx.result = (run_id, outcome)  # one atomic assignment
     ctx.spawn(job)
 
 
 def _collect(ctx: Ctx) -> None:
-    if ctx.busy or ctx.result is None:
+    if ctx.result is None:
         return
     run_id, outcome = ctx.result
-    ctx.result = None
+    ctx.result, ctx.busy = None, False
     if isinstance(outcome, Exception):
         ctx.state["run"] = {"id": run_id, "status": "crashed"}
         ctx.state["paused"] = True  # a deterministic crash would otherwise restart forever
@@ -125,11 +130,21 @@ def _collect(ctx: Ctx) -> None:
     ctx.state["run"] = run
 
 
+def _quota_reserved(ctx: Ctx) -> bool:
+    """A run stops at quota_threshold, but its quota dies with it: without this a new run would start on the
+    next tick and eat the owner's reserve. Hold automatic starts until that window resets."""
+    info = events.latest_utilization(ctx.conn, ctx.simulated)
+    if info is None or info["utilization"] < ctx.cfg.quota_threshold:
+        return False
+    return ctx.now().timestamp() < (info.get("resets_at") or info["ts"] + 5 * 3600)
+
+
 def _start_new(ctx: Ctx, manual: bool = False) -> str:
     run = ctx.state["run"]
     if ctx.busy or (run and run["status"] in ACTIVE):
         return "Běh už probíhá nebo čeká — /status."
-    if not manual and (ctx.state["paused"] or not in_window(ctx.now().time(), ctx.cfg.serve.window)):
+    if not manual and (ctx.state["paused"] or not in_window(ctx.now().time(), ctx.cfg.serve.window)
+                       or _quota_reserved(ctx)):
         return ""
     if not rank(_tasks(ctx), set(ctx.cfg.projects)):
         return "Fronta je prázdná." if manual else ""
@@ -141,6 +156,9 @@ def _start_new(ctx: Ctx, manual: bool = False) -> str:
 
 def _resume(ctx: Ctx, run_id: str) -> None:
     answers, ctx.state["answers"] = ctx.state["answers"], {}
+    for iid in answers:  # a late reply to these must not look accepted (_answer)
+        if iid in ctx.state["asked"]:
+            ctx.state["asked"][iid]["answered"] = True
     _start(ctx, run_id, None, answers)
 
 
@@ -187,10 +205,12 @@ def _answer(ctx: Ctx, msg: dict, text: str) -> str:
     reply_id = (msg.get("reply_to_message") or {}).get("message_id")
     iid = next((i for i, a in asked.items() if a["message_id"] == reply_id), None)
     if iid is None and reply_id is None:
-        unanswered = [i for i in asked if i not in answers]
+        unanswered = [i for i, a in asked.items() if i not in answers and not a.get("answered")]
         iid = unanswered[0] if len(unanswered) == 1 else None
     if iid is None:
         return "Na který dotaz odpovídáš? Dej reply na jeho zprávu." if asked else HELP
+    if asked[iid].get("answered"):
+        return f"{asked[iid]['task']}: odpověď už mám, úkol pokračuje — tahle se nepoužije."
     answers[iid] = text
     run = ctx.state["run"]
     if run and run["status"] == "paused":
@@ -263,7 +283,7 @@ def digest_text(conn, since: float, backlog_text: str, simulated: bool = False) 
 
 def _send_digest(ctx: Ctx) -> None:
     now = ctx.now()
-    text = digest_text(ctx.conn, ctx.state["digest_since"], ctx.backlog_path.read_bytes().decode("utf-8"), ctx.simulated)
+    text = digest_text(ctx.conn, ctx.state["digest_since"], _backlog_text(ctx), ctx.simulated)
     if say(ctx, text) is not None:
         ctx.state["last_digest"], ctx.state["digest_since"] = now.date().isoformat(), now.timestamp()
 
@@ -276,9 +296,13 @@ def _maybe_digest(ctx: Ctx) -> None:
 
 
 def _maybe_scan(ctx: Ctx) -> None:
-    today = ctx.now().date().isoformat()
-    if ctx.cfg.serve.scan and ctx.state["last_scan"] != today and in_window(ctx.now().time(), ctx.cfg.serve.window):
-        ctx.state["last_scan"] = today
+    now, window = ctx.now(), ctx.cfg.serve.window
+    if not ctx.cfg.serve.scan or not in_window(now.time(), window):
+        return
+    # once per window: a 22:00–07:00 window started yesterday when it is 01:00
+    opened = (now.date() if now.time() >= window[0] else now.date() - timedelta(days=1)).isoformat()
+    if ctx.state["last_scan"] != opened:
+        ctx.state["last_scan"] = opened
         try:
             ctx.scan()
         except Exception as e:
@@ -376,18 +400,21 @@ def tick(ctx: Ctx, updates: list[dict]) -> None:
             handle(ctx, u)
         except Exception as e:  # one bad update must not stop the daemon
             print(f"update {u.get('update_id')}: {type(e).__name__}: {e}", file=sys.stderr)
-    _collect(ctx)
-    _maybe_scan(ctx)
-    if not ctx.busy:
-        _sync_questions(ctx)
-        _advance(ctx)
-        _collect(ctx)  # a synchronous spawn has already finished
-    if not ctx.busy:
-        _sync_questions(ctx)
-    _notify_proposals(ctx)
-    _maybe_digest(ctx)
-    if ctx.state_path:
-        save_state(ctx.state_path, ctx.state)
+    try:
+        _maybe_scan(ctx)
+        # collect right before every busy check: the run thread may finish at any moment (e.g. during the scan)
+        _collect(ctx)
+        if not ctx.busy:
+            _sync_questions(ctx)
+            _advance(ctx)
+        _collect(ctx)
+        if not ctx.busy:
+            _sync_questions(ctx)
+        _notify_proposals(ctx)
+        _maybe_digest(ctx)
+    finally:  # the offset too: a handled update must not be delivered again after a failure
+        if ctx.state_path:
+            save_state(ctx.state_path, ctx.state)
 
 
 def loop(ctx: Ctx) -> None:
@@ -398,4 +425,12 @@ def loop(ctx: Ctx) -> None:
             print(f"telegram: {e}", file=sys.stderr)
             updates = []
             _time.sleep(5)
-        tick(ctx, updates)
+        try:
+            tick(ctx, updates)
+        except Exception as e:  # e.g. a hand-edited BACKLOG.md that no longer parses: keep running, tell once
+            error = f"{type(e).__name__}: {e}"
+            print(f"tick: {error}", file=sys.stderr)
+            if error != ctx.last_error and say(ctx, f"⚠️ Démon narazil na chybu: {error[:500]}") is not None:
+                ctx.last_error = error
+        else:
+            ctx.last_error = None

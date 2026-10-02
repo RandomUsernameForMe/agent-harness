@@ -68,6 +68,18 @@ def since(conn, ts: float, simulated: bool) -> list[dict]:
     return [_row(r) for r in rows]
 
 
+def latest_utilization(conn, simulated: bool) -> dict | None:
+    """Newest rate-limit info that carries a utilization (pause events only carry resets_at), with its event ts."""
+    with _lock:
+        rows = conn.execute("SELECT ts, rate_limit FROM events WHERE rate_limit IS NOT NULL AND simulated = ? "
+                            "ORDER BY id DESC LIMIT 50", (int(simulated),)).fetchall()
+    for r in rows:
+        info = json.loads(r["rate_limit"])
+        if info.get("utilization") is not None:
+            return {**info, "ts": r["ts"]}
+    return None
+
+
 def runs(conn) -> list[dict]:
     with _lock:
         rows = conn.execute("""

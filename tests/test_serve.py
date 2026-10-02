@@ -306,3 +306,88 @@ def test_state_roundtrip(tmp_path):
     st["asked"]["x"] = {"message_id": 1, "task": "t", "at": 1.0}
     serve.save_state(p, st)
     assert serve.load_state(p, NIGHT)["asked"] == {"x": {"message_id": 1, "task": "t", "at": 1.0}}
+
+
+def test_quota_threshold_holds_auto_start_until_reset(tmp_path):
+    env = Env(tmp_path, "happy-path")
+    reset = (NIGHT + timedelta(hours=2)).timestamp()
+    events.log(env.ctx.conn, "earlier", "end", node="implement", simulated=True,
+               rate_limit={"type": "five_hour", "utilization": 0.9, "resets_at": reset})
+    env.tick()
+    assert env.statuses() == {"sim-01": " "}  # 0.9 ≥ 0.7: keep the user's reserve
+    env.clock[0] = NIGHT + timedelta(hours=2, minutes=1)
+    env.tick()
+    assert env.statuses() == {"sim-01": "x"}
+
+
+def test_manual_run_ignores_quota_reserve(tmp_path):
+    env = Env(tmp_path, "happy-path", now=NOON)
+    events.log(env.ctx.conn, "earlier", "end", node="implement", simulated=True,
+               rate_limit={"utilization": 0.9, "resets_at": (NOON + timedelta(hours=2)).timestamp()})
+    env.tick(env.msg("/run"))
+    assert env.statuses() == {"sim-01": "x"}
+
+
+def test_run_finishing_mid_tick_is_collected_not_restarted(tmp_path):
+    env = Env(tmp_path, "happy-path")
+    jobs = []
+    env.ctx.spawn = jobs.append
+    env.ctx.state["last_scan"] = env.clock[0].date().isoformat()
+    env.tick()
+    assert len(jobs) == 1
+    env.ctx.state["last_scan"] = None
+    env.ctx.cfg = replace(env.ctx.cfg, serve=replace(env.ctx.cfg.serve, scan=True))
+    env.ctx.scan = lambda: jobs.pop()() or 0  # the run thread finishes between two checks of one tick
+    env.tick()
+    assert jobs == []  # collected as done, not mistaken for a run the daemon lost on restart
+    assert env.ctx.state["run"]["status"] == "done" and not env.ctx.busy
+    assert [r["last_kind"] for r in events.runs(env.ctx.conn)] == ["run_end"]
+
+
+def test_unexpected_error_in_tick_is_reported_once_and_loop_survives(tmp_path, monkeypatch):
+    env = Env(tmp_path, "happy-path", window=None)
+    env.sim.backlog_path.write_text("## demo\n- [ ] P1 d-1 A\n- [ ] P1 d-1 B\n", encoding="utf-8")  # duplicate id
+    calls = []
+
+    def updates(offset, timeout):
+        calls.append(offset)
+        if len(calls) > 3:
+            raise KeyboardInterrupt
+        return []
+    env.bot.updates = updates
+    with pytest.raises(KeyboardInterrupt):
+        serve.loop(env.ctx)
+    assert len(calls) == 4
+    errors = [t for t in env.bot.texts() if t.startswith("⚠️")]
+    assert len(errors) == 1 and "duplicate task id" in errors[0]
+
+
+def test_state_saved_even_when_tick_fails(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    env.ctx.state_path = tmp_path / "serve_state.json"
+    env.sim.backlog_path.write_text("## demo\n- [ ] P1 d-1 A\n- [ ] P1 d-1 B\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        env.tick(env.msg("ahoj"))
+    assert serve.load_state(env.ctx.state_path, NIGHT)["offset"] == 2  # the update is not delivered again
+
+
+def test_scan_once_per_window_across_midnight(tmp_path):
+    env = Env(tmp_path, "happy-path", scan=lambda: env.scans.append(1) or 0)
+    env.tick()
+    env.clock[0] = datetime(2026, 10, 3, 1, 0)
+    env.tick()
+    assert env.scans == [1]
+    env.clock[0] = datetime(2026, 10, 3, 22, 0)
+    env.tick()
+    assert env.scans == [1, 1]
+
+
+def test_reply_to_question_being_resumed_is_not_lost_silently(tmp_path):
+    env = Env(tmp_path, "clarify-answered")
+    env.tick()
+    [q] = env.question_msgs()
+    jobs = []
+    env.ctx.spawn = jobs.append
+    env.tick(env.msg("měř LCP", reply_to=q["id"]))
+    env.tick(env.msg("vlastně TTFB", reply_to=q["id"]))
+    assert "už mám" in env.bot.texts()[-1]

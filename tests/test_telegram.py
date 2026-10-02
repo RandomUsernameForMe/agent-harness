@@ -72,3 +72,9 @@ def test_network_error_becomes_telegram_error(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", FakeUrlopen(error=urllib.error.URLError("no route")))
     with pytest.raises(TelegramError, match="no route"):
         Telegram("T", 1).updates(0, 0)
+
+
+def test_garbled_response_becomes_telegram_error(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: io.BytesIO(b"<html>bad gateway"))
+    with pytest.raises(TelegramError, match="getUpdates"):
+        Telegram("T", 1).updates(0, 0)

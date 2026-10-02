@@ -24,3 +24,4 @@
 ## [2026-10-02] - Telegram klient (stdlib urllib: getUpdates, sendMessage s tlačítky, editMessageText, answerCallbackQuery)
 ## [2026-10-02] - harness serve: démon s Telegram ovládáním (okno pro automatický start, dotazy s reply/timeoutem, schvalování návrhů, digest po okně, resume po rate limitu a restartu, pád = pauza), denní sken, serve v projects.yaml
 ## [2026-10-02] - README: harness serve (nastavení bota, Task Scheduler), screenshot dotazu v dashboardu
+## [2026-10-02] - Opravy z review fáze 3: démon drží rezervu kvóty mezi běhy, předávka výsledku běhu bez závodu, výjimka v tiku démona neshodí, sken 1× na okno, /answer v dashboardu atomicky, pozdní odpověď na už zodpovězený dotaz se ohlásí
