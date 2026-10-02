@@ -21,3 +21,4 @@
 ## [2026-10-02] - Backlog: stav [-] (zamítnutý návrh), edit_backlog pod zámkem
 ## [2026-10-02] - Uzel clarify: nejasný úkol se ptá přes interrupt (max 2 kola), stav běhu waiting, open_interrupts ignoruje zodpovězené interrupty hotových workerů
 ## [2026-10-02] - Odpověď na dotaz nejasného úkolu z terminálu (run/simulate) a z dashboardu (POST /runs/{id}/answer)
+## [2026-10-02] - Telegram klient (stdlib urllib: getUpdates, sendMessage s tlačítky, editMessageText, answerCallbackQuery)
