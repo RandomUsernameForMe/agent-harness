@@ -62,6 +62,12 @@ def events_after(conn, after_id: int = 0, run_id: str | None = None) -> list[dic
     return [_row(r) for r in rows]
 
 
+def since(conn, ts: float, simulated: bool) -> list[dict]:
+    with _lock:
+        rows = conn.execute("SELECT * FROM events WHERE ts >= ? AND simulated = ? ORDER BY id", (ts, int(simulated))).fetchall()
+    return [_row(r) for r in rows]
+
+
 def runs(conn) -> list[dict]:
     with _lock:
         rows = conn.execute("""

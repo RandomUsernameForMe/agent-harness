@@ -3,21 +3,24 @@ import os
 import sqlite3
 import sys
 import tempfile
+import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from . import backlog, events
+from . import backlog, events, serve
 from .graph import build_graph, initial_state
-from .nodes.common import make_pick_tasks, make_report
+from .nodes.common import edit_backlog, make_pick_tasks, make_report
 from .nodes.real import git, real_nodes, worktree_path
 from .projects import load_config
 from .priority import config_focus, rank
 from .runner import execute, pending, questions, run_config
-from .scan import new_proposals, proposal_lines, scan_project
+from .scan import proposal_lines, scan_all
 from .sdk import check_billing
 from .simulate import prepare
+from .telegram import Telegram
 
 
 def open_db(home: Path):
@@ -62,16 +65,20 @@ def cmd_simulate(args) -> int:
     return 0
 
 
+def _real_app(home: Path, cfg):
+    backlog_path = home / "BACKLOG.md"
+    conn, saver = open_db(home)
+    nodes = real_nodes(cfg) | {"pick_tasks": make_pick_tasks(backlog_path, cfg), "report": make_report(backlog_path)}
+    return build_graph(nodes, saver), backlog_path, conn
+
+
 def cmd_run(args) -> int:
     cfg = load_config(args.home / "projects.yaml")
     # preflight checks this per task, but --resume jumps straight back into implement
     if err := check_billing(cfg.billing, os.environ):
         print(err, file=sys.stderr)
         return 2
-    backlog_path = args.home / "BACKLOG.md"
-    conn, saver = open_db(args.home)
-    nodes = real_nodes(cfg) | {"pick_tasks": make_pick_tasks(backlog_path, cfg), "report": make_report(backlog_path)}
-    app = build_graph(nodes, saver)
+    app, backlog_path, conn = _real_app(args.home, cfg)
     run_id = args.resume or f"run-{time.strftime('%Y%m%d-%H%M%S')}"
     inputs = None if args.resume else initial_state(run_id, cfg, simulated=False)
     config = run_config(run_id)
@@ -81,6 +88,45 @@ def cmd_run(args) -> int:
     print(f"{run_id} {status}")
     if status == "paused":
         print(f"resume: harness run --resume {run_id}")
+    return 0
+
+
+def _scan_into(cfg, backlog_path: Path) -> int:
+    """Scan outside the backlog lock (git fetch is slow), then append only proposals still unknown."""
+    _, props = scan_all(cfg, backlog_path.read_bytes().decode("utf-8"))
+
+    def add(text: str) -> str:
+        known = {t.id for t in backlog.parse(text)}
+        for p in props:
+            if p.id not in known:
+                text = backlog.add_tasks(text, p.project, proposal_lines(p))
+        return text
+    edit_backlog(backlog_path, add)
+    return len(props)
+
+
+def cmd_serve(args) -> int:
+    token, chat = os.environ.get("HARNESS_TELEGRAM_TOKEN"), os.environ.get("HARNESS_TELEGRAM_CHAT_ID")
+    if not token or not chat:
+        print("set HARNESS_TELEGRAM_TOKEN and HARNESS_TELEGRAM_CHAT_ID (see README → serve)", file=sys.stderr)
+        return 2
+    cfg = load_config(args.home / "projects.yaml")
+    if err := check_billing(cfg.billing, os.environ):
+        print(err, file=sys.stderr)
+        return 2
+    app, backlog_path, conn = _real_app(args.home, cfg)
+    state_path = args.home / "serve_state.json"
+    ctx = serve.Ctx(cfg=cfg, bot=Telegram(token, int(chat)), app=app, backlog_path=backlog_path, conn=conn,
+                    new_inputs=lambda rid: initial_state(rid, cfg, simulated=False),
+                    state=serve.load_state(state_path, datetime.now()),
+                    spawn=lambda job: threading.Thread(target=job, daemon=True).start(),
+                    now=datetime.now, scan=lambda: _scan_into(cfg, backlog_path), state_path=state_path)
+    print(f"harness serve: window {serve.fmt_window(cfg.serve.window)}, Ctrl+C to stop")
+    serve.say(ctx, "🟢 harness serve běží. /help")
+    try:
+        serve.loop(ctx)
+    except KeyboardInterrupt:  # a running run continues from its checkpoint on the next start
+        serve.save_state(state_path, ctx.state)
     return 0
 
 
@@ -121,23 +167,16 @@ def cmd_scan(args) -> int:
     if unknown := [n for n in names if n not in cfg.projects]:
         print(f"unknown project: {', '.join(unknown)}", file=sys.stderr)
         return 2
-    added = 0
+    new_text, props = scan_all(cfg, text, names, args.limit)
     for name in names:
-        try:
-            props = new_proposals(scan_project(cfg.projects[name], args.limit), backlog.parse(text))
-        except Exception as e:  # one unreachable repo must not hide the others
-            print(f"{name}: scan failed: {e}", file=sys.stderr)
-            continue
-        for p in props:
+        mine = [p for p in props if p.project == name]
+        for p in mine:
             print(f"{name}: {p.id} {p.title} ({p.path}:{p.line})")
-        if not props:
+        if not mine:
             print(f"{name}: no new proposals")
-        if props and args.write:
-            text = backlog.add_tasks(text, name, [line for p in props for line in proposal_lines(p)])
-            added += len(props)
-    if args.write and added:
-        (args.home / "BACKLOG.md").write_bytes(text.encode("utf-8"))
-        print(f"{added} proposal(s) written as [~]; change to [ ] to approve")
+    if args.write and props:
+        (args.home / "BACKLOG.md").write_bytes(new_text.encode("utf-8"))
+        print(f"{len(props)} proposal(s) written as [~]; change to [ ] to approve")
     return 0
 
 
@@ -163,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--resume", metavar="RUN_ID")
     d = sub.add_parser("dashboard")
     d.add_argument("--port", type=int, default=8765)
+    sub.add_parser("serve")
     sub.add_parser("prune")
     sub.add_parser("queue")
     sc = sub.add_parser("scan")
@@ -171,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--limit", type=int, default=5)
     args = p.parse_args(argv)
     handlers = {"simulate": cmd_simulate, "run": cmd_run, "dashboard": cmd_dashboard, "prune": cmd_prune,
-                "queue": cmd_queue, "scan": cmd_scan}
+                "queue": cmd_queue, "scan": cmd_scan, "serve": cmd_serve}
     return handlers[args.cmd](args)
 
 

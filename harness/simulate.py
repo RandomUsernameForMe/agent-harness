@@ -20,6 +20,7 @@ class Simulation:
     inputs: dict
     script: Script
     backlog_path: Path
+    cfg: Config | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -47,4 +48,4 @@ def prepare(scenario_path: Path, workdir: Path, checkpointer, step: bool = False
     nodes = fake_nodes(script) | {"pick_tasks": make_pick_tasks(backlog_path, cfg), "report": make_report(backlog_path)}
     run_id = f"sim-{Path(scenario_path).stem}-{int(time.time() * 1000)}"
     app = build_graph(nodes, checkpointer, step)
-    return Simulation(app, run_config(run_id), run_id, initial_state(run_id, cfg, True), script, backlog_path)
+    return Simulation(app, run_config(run_id), run_id, initial_state(run_id, cfg, True), script, backlog_path, cfg)

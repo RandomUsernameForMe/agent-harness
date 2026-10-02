@@ -63,6 +63,11 @@ def _rate_limit_pauses(app, config: dict) -> list:
     return [i for i in open_interrupts(app, config) if isinstance(i.value, dict) and "rate_limited" in i.value]
 
 
+def resets_at(app, config: dict) -> int | None:
+    """When the latest rate limit of a paused run resets (None = unknown or not paused)."""
+    return max((i.value["rate_limited"] or 0 for i in _rate_limit_pauses(app, config)), default=0) or None
+
+
 def questions(app, config: dict) -> list[dict]:
     return [{"id": i.id, **i.value} for i in open_interrupts(app, config)
             if isinstance(i.value, dict) and "question" in i.value]
@@ -81,8 +86,8 @@ def execute(app, inputs, config: dict, conn, simulated: bool, answers: dict[str,
             inputs = Command(resume=resume)
     for ns, _, ev in app.stream(inputs, config, stream_mode=["debug"], subgraphs=True):
         logger.debug(ns, ev)
-    if pauses := _rate_limit_pauses(app, config):
-        logger.log("paused", rate_limit={"resets_at": max((i.value["rate_limited"] or 0) for i in pauses) or None})
+    if _rate_limit_pauses(app, config):
+        logger.log("paused", rate_limit={"resets_at": resets_at(app, config)})
         return "paused"
     if asked := questions(app, config):
         logger.log("waiting", delta={"questions": asked})

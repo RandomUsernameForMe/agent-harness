@@ -3,9 +3,12 @@ import re
 import subprocess
 from dataclasses import dataclass
 
+import sys
+
+from . import backlog
 from .backlog import Task
 from .nodes.real import git
-from .projects import Project
+from .projects import Config, Project
 
 MARKER_RE = re.compile(r"\b(TODO|FIXME)\b[:\s-]*(.*)")
 
@@ -56,3 +59,18 @@ def new_proposals(props: list[Proposal], tasks: list[Task]) -> list[Proposal]:
 def proposal_lines(p: Proposal) -> list[str]:
     return [f"- [~] P3 {p.id} {p.title}",
             f"  Návrh ze skenu: {p.path}:{p.line}. Vyřeš poznámku a odstraň ji; ověř existujícími testy."]
+
+
+def scan_all(cfg: Config, text: str, names: list[str] | None = None, limit: int = 5) -> tuple[str, list[Proposal]]:
+    """New proposals of the given projects and the backlog text with them appended as [~]."""
+    found: list[Proposal] = []
+    for name in names or list(cfg.projects):
+        try:
+            props = new_proposals(scan_project(cfg.projects[name], limit), backlog.parse(text))
+        except Exception as e:  # one unreachable repo must not hide the others
+            print(f"{name}: scan failed: {e}", file=sys.stderr)
+            continue
+        if props:
+            text = backlog.add_tasks(text, name, [line for p in props for line in proposal_lines(p)])
+        found += props
+    return text, found
