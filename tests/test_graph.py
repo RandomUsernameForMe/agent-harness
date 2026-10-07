@@ -53,3 +53,18 @@ def test_mermaid_lists_all_nodes():
     assert "pick_tasks" in parent and "worker" in parent
     for n in WORKER_NODES:
         assert n in worker
+
+
+def test_start_routes_go_and_run():
+    from harness.graph import start
+    assert start({"discover": False}) == "pick_tasks"
+    assert start({}) == "pick_tasks"
+    assert start({"discover": True, "projects": ["a", "b"]}) == [Send("discover", {"project": "a"}),
+                                                                Send("discover", {"project": "b"})]
+    assert start({"discover": True, "projects": []}) == "prioritize"
+
+
+def test_after_approve():
+    from harness.graph import after_approve
+    assert after_approve({"planned": ["x"]}) == "pick_tasks"
+    assert after_approve({"planned": []}) == END

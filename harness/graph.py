@@ -8,7 +8,7 @@ from langgraph.types import RetryPolicy, Send, interrupt
 from .projects import Config
 
 WORKER_NODES = ("preflight", "make_worktree", "plan", "setup", "implement", "verify", "open_pr", "report")
-NODES = ("pick_tasks", *WORKER_NODES)
+NODES = ("discover", "prioritize", "approve", "pick_tasks", *WORKER_NODES)
 LINEAR = {"preflight": "make_worktree", "make_worktree": "plan",
           "setup": "implement", "implement": "verify", "open_pr": "report"}
 MAX_CLARIFY = 2
@@ -51,6 +51,12 @@ class State(TypedDict, total=False):
     tasks_done: Annotated[int, operator.add]
     quota: Annotated[float | None, _max]
     usage: Annotated[list, operator.add]
+    discover: bool
+    projects: list[str]
+    proposals: Annotated[list, operator.add]  # parallel discover writes
+    plan: list[dict]
+    planned: list[str] | None  # approved ids in order; None = `harness run`, rank the whole backlog
+    go_errors: Annotated[list, operator.add]
 
 
 class RateLimited(Exception):
@@ -62,6 +68,16 @@ class RateLimited(Exception):
 def fan_out(state: State) -> list[Send] | str:
     base = {"run_id": state["run_id"], "simulated": state.get("simulated", False), "usage": []}
     return [Send("worker", base | item) for item in state.get("batch") or []] or END
+
+
+def start(state: State) -> list[Send] | str:
+    if not state.get("discover"):
+        return "pick_tasks"
+    return [Send("discover", {"project": p}) for p in state.get("projects") or []] or "prioritize"
+
+
+def after_approve(state: State) -> str:
+    return "pick_tasks" if state.get("planned") else END
 
 
 def after_plan(state: WorkerState) -> str:
@@ -95,20 +111,29 @@ def _linear(nxt: str) -> Callable[[WorkerState], str]:
     return lambda state: "report" if state.get("outcome") else nxt
 
 
-def _safe(fn: Callable) -> Callable:
-    def wrapped(state: WorkerState) -> dict:
+def _pausing(fn: Callable) -> Callable:
+    def wrapped(state: dict) -> dict:
         try:
             return fn(state)
         except RateLimited as e:
             limited = e
-        except Exception as e:
-            return {"outcome": "failed", "last_failure": f"{type(e).__name__}: {e}"}
         # interrupt, not an exception: an exception cancels the step and parallel siblings would finish
         # unobserved; an interrupt lets them complete. Each resume re-runs the node once; interrupts answered
         # by earlier resumes return immediately, the first unanswered one pauses the run again.
         while True:
             interrupt({"rate_limited": limited.resets_at})
     return wrapped
+
+
+def _safe(fn: Callable) -> Callable:
+    def guarded(state: WorkerState) -> dict:
+        try:
+            return fn(state)
+        except RateLimited:
+            raise
+        except Exception as e:
+            return {"outcome": "failed", "last_failure": f"{type(e).__name__}: {e}"}
+    return _pausing(guarded)
 
 
 def build_worker(nodes: dict[str, Callable], step: bool = False):
@@ -142,17 +167,25 @@ def build_graph(nodes: dict[str, Callable], checkpointer=None, step: bool = Fals
     if missing:
         raise ValueError(f"missing nodes: {sorted(missing)}")
     g = StateGraph(State)
+    g.add_node("discover", _pausing(nodes["discover"]))
+    g.add_node("prioritize", _pausing(nodes["prioritize"]))
+    g.add_node("approve", nodes["approve"])  # not _pausing: its interrupt must propagate
     g.add_node("pick_tasks", nodes["pick_tasks"])
     g.add_node("worker", _worker_node(build_worker(nodes, step)))
-    g.add_edge(START, "pick_tasks")
+    g.add_conditional_edges(START, start, ["discover", "prioritize", "pick_tasks"])
+    g.add_edge("discover", "prioritize")
+    g.add_edge("prioritize", "approve")
+    g.add_conditional_edges("approve", after_approve, ["pick_tasks", END])
     g.add_conditional_edges("pick_tasks", fan_out, ["worker", END])
     g.add_edge("worker", "pick_tasks")
-    return g.compile(checkpointer=checkpointer, interrupt_before=["pick_tasks"] if step else None)
+    return g.compile(checkpointer=checkpointer,
+                     interrupt_before=["discover", "prioritize", "pick_tasks"] if step else None)
 
 
-def initial_state(run_id: str, cfg: Config, simulated: bool) -> dict:
+def initial_state(run_id: str, cfg: Config, simulated: bool, discover: bool = False) -> dict:
     return {"run_id": run_id, "simulated": simulated, "max_tasks": cfg.max_tasks_per_run,
-            "max_parallel": cfg.max_parallel, "quota_threshold": cfg.quota_threshold, "tasks_done": 0, "usage": []}
+            "max_parallel": cfg.max_parallel, "quota_threshold": cfg.quota_threshold, "tasks_done": 0, "usage": [],
+            "discover": discover, "projects": list(cfg.projects)}
 
 
 def _noop_nodes() -> dict[str, Callable]:
