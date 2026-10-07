@@ -27,8 +27,8 @@ def test_explore_reads_fresh_origin_with_context(tmp_path, monkeypatch):
     monkeypatch.setattr(real, "run_agent", fake_agent(calls, '[{"title": "X"}]'))
     explore = real.real_explore(cfg)
     known = [Task("d1", "demo", 2, "Starý úkol", "-", "")]
-    text, usage = explore("demo", known)
-    assert text == '[{"title": "X"}]' and usage[0]["node"] == "discover"
+    text, agent = explore("demo", known)
+    assert text == '[{"title": "X"}]' and agent["usage"][0]["node"] == "discover" and agent["quota"] == 0.1
     c = calls[0]
     assert c["model"] == "opus" and c["tools"] == real.READ_TOOLS and c["max_turns"] == 40
     assert "npm test" in c["prompt"] and "Starý úkol" in c["prompt"] and "export do CSV" in c["prompt"]
@@ -47,8 +47,8 @@ def test_rank_sends_candidates_and_limit(monkeypatch):
     monkeypatch.setattr(real, "run_agent", fake_agent(calls, '[{"id": "a"}]'))
     cands = [{"id": "a", "project": "demo", "title": "{nebezpečné}", "kind": "test", "why": "w", "done": "d",
               "source": "new", "priority": 2, "description": "dlouhý popis"}]
-    text, usage = real.real_rank(cands, 3, {"demo": 2}, {"demo": 1})
-    assert text == '[{"id": "a"}]' and usage[0]["node"] == "prioritize"
+    text, agent = real.real_rank(cands, 3, {"demo": 2}, {"demo": 1})
+    assert text == '[{"id": "a"}]' and agent["usage"][0]["node"] == "prioritize" and agent["quota"] == 0.1
     c = calls[0]
     assert c["tools"] == [] and c["max_turns"] == 1 and c["model"] == "opus"
     assert "at most 3 tasks" in c["prompt"] and '"id": "a"' in c["prompt"] and "{nebezpečné}" in c["prompt"]

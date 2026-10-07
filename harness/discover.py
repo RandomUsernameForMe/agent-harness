@@ -13,15 +13,25 @@ NEW_PRIORITY = 2
 FENCE_RE = re.compile(r"```(?:json)?\s*(\[.*?\])\s*```", re.DOTALL)
 
 
+def _arrays(text: str) -> list[list]:
+    decoder, out = json.JSONDecoder(), []
+    for i, ch in enumerate(text):
+        if ch == "[":
+            try:
+                data, _ = decoder.raw_decode(text, i)
+            except ValueError:
+                continue
+            if isinstance(data, list):
+                out.append(data)
+    return out
+
+
 def json_array(text: str) -> list | None:
-    """The JSON array of a model answer: a ```json fence, else the outermost [...]."""
+    """The JSON array of a model answer: a ```json fence, else the first array of objects in the text
+    (prose around it may hold `[README.md]` or `[1]`), else the first array at all (`[]` = nothing to do)."""
     m = FENCE_RE.search(text)
-    raw = m[1] if m else text[text.find("["): text.rfind("]") + 1]
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        return None
-    return data if isinstance(data, list) else None
+    arrays = _arrays(m[1] if m else text)
+    return next((a for a in arrays if a and all(isinstance(x, dict) for x in a)), arrays[0] if arrays else None)
 
 
 def _line(value) -> str:
@@ -65,7 +75,7 @@ def parse_ranking(text: str, cands: list[dict], n: int) -> list[dict]:
     plan: list[dict] = []
     for item in json_array(text) or []:
         cid = item.get("id") if isinstance(item, dict) else None
-        if cid in by_id and all(p["id"] != cid for p in plan):
+        if isinstance(cid, str) and cid in by_id and all(p["id"] != cid for p in plan):
             plan.append(by_id[cid] | {"why": _line(item.get("why")) or by_id[cid]["why"]})
     return plan[:n]
 

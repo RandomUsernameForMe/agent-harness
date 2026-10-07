@@ -106,3 +106,15 @@ def test_format_plan():
     out = format_plan(plan)
     assert "1. [demo] test A (nový)" in out
     assert "2. [demo] - Ruční (z BACKLOGu)" in out and "proč" in out
+
+
+def test_json_array_skips_bracketed_prose():
+    assert json_array('I read [README.md] and found:\n[{"title": "a"}]') == [{"title": "a"}]
+    assert json_array('[{"title": "a"}]\nSee [README] for more') == [{"title": "a"}]
+    assert json_array('footnote [1], then [{"title": "a"}]') == [{"title": "a"}]
+    assert json_array("Nothing to do: []") == []
+
+
+def test_parse_ranking_ignores_unhashable_ids():
+    cands = candidates(props("A"), [], {"demo"})
+    assert parse_ranking('[{"id": ["x"]}, {"id": {"a": 1}}]', cands, 2) == []

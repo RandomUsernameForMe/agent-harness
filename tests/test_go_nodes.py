@@ -30,11 +30,11 @@ def test_discover_passes_known_tasks_and_parses(tmp_path):
 
     def explore(name, known):
         seen[name] = [t.id for t in known]
-        return '[{"title": "Odmítnuté"}, {"title": "Nové", "kind": "bug"}]', [{"node": "discover"}]
+        return '[{"title": "Odmítnuté"}, {"title": "Nové", "kind": "bug"}]', {"usage": [{"node": "discover"}], "quota": 0.4}
     out = make_discover(bp, explore)({"project": "demo"})
     assert seen == {"demo": ["old"]}
     assert [p["title"] for p in out["proposals"]] == ["Nové"]
-    assert out["usage"] == [{"node": "discover"}] and out["go_errors"] == []
+    assert out["usage"] == [{"node": "discover"}] and out["quota"] == 0.4 and out["go_errors"] == []
 
 
 def test_discover_failure_costs_only_this_project(tmp_path):
@@ -42,9 +42,9 @@ def test_discover_failure_costs_only_this_project(tmp_path):
     write(bp, "")
     boom = make_discover(bp, lambda n, k: (_ for _ in ()).throw(RuntimeError("agent died")))
     assert boom({"project": "demo"}) == {"proposals": [], "go_errors": ["demo: RuntimeError: agent died"]}
-    prose = make_discover(bp, lambda n, k: ("Nic jsem nenašel.", []))
+    prose = make_discover(bp, lambda n, k: ("Nic jsem nenašel.", {}))
     assert prose({"project": "demo"})["go_errors"] == ["demo: odpověď bez JSON pole"]
-    empty = make_discover(bp, lambda n, k: ("[]", []))
+    empty = make_discover(bp, lambda n, k: ("[]", {}))
     assert empty({"project": "demo"})["go_errors"] == []
 
 
@@ -68,9 +68,9 @@ def test_prioritize_uses_model_order_or_falls_back(tmp_path):
     write(bp, "## demo\n- [ ] P1 t1 Ruční\n")
     state = {"proposals": [proposal("A"), proposal("B")], "max_tasks": 2}
     a, b = state["proposals"][0]["id"], state["proposals"][1]["id"]
-    ok = make_prioritize(bp, cfg("demo"), lambda c, n, f, w: (json.dumps([{"id": b}, {"id": "t1"}]), [{"u": 1}]))
+    ok = make_prioritize(bp, cfg("demo"), lambda c, n, f, w: (json.dumps([{"id": b}, {"id": "t1"}]), {"usage": [{"u": 1}], "quota": 0.5}))
     out = ok(state)
-    assert [p["id"] for p in out["plan"]] == [b, "t1"] and out["usage"] == [{"u": 1}]
+    assert [p["id"] for p in out["plan"]] == [b, "t1"] and out["usage"] == [{"u": 1}] and out["quota"] == 0.5
     bad = make_prioritize(bp, cfg("demo"), lambda c, n, f, w: (_ for _ in ()).throw(RuntimeError("x")))
     out = bad(state)
     assert [p["id"] for p in out["plan"]] == ["t1", a]
@@ -81,7 +81,7 @@ def test_prioritize_without_candidates_skips_model(tmp_path):
     bp = tmp_path / "BACKLOG.md"
     write(bp, "")
     called = []
-    node = make_prioritize(bp, cfg("demo"), lambda *a: called.append(a) or ("[]", []))
+    node = make_prioritize(bp, cfg("demo"), lambda *a: called.append(a) or ("[]", {}))
     assert node({"proposals": []}) == {"plan": []} and not called
 
 
@@ -98,8 +98,8 @@ def go_graph(tmp_path, explore, rank_fn, workers):
 
 def test_go_end_to_end_with_approval(tmp_path):
     workers = []
-    explore = lambda name, known: (json.dumps([{"title": f"Úkol {name}"}]), [])
-    rank_all = lambda cands, n, f, w: (json.dumps([{"id": c["id"]} for c in cands]), [])
+    explore = lambda name, known: (json.dumps([{"title": f"Úkol {name}"}]), {})
+    rank_all = lambda cands, n, f, w: (json.dumps([{"id": c["id"]} for c in cands]), {})
     app, bp, c = go_graph(tmp_path, explore, rank_all, workers)
     write(bp, "## demo\n- [ ] P3 t1 Ruční\n")
     config = {"configurable": {"thread_id": "go"}, "recursion_limit": 100}
@@ -114,7 +114,7 @@ def test_go_end_to_end_with_approval(tmp_path):
 
 def test_go_with_empty_plan_ends_without_question(tmp_path):
     workers = []
-    app, bp, c = go_graph(tmp_path, lambda n, k: ("[]", []), lambda *a: ("[]", []), workers)
+    app, bp, c = go_graph(tmp_path, lambda n, k: ("[]", {}), lambda *a: ("[]", {}), workers)
     write(bp, "")
     config = {"configurable": {"thread_id": "go"}, "recursion_limit": 100}
     app.invoke(initial_state("go", c, True, discover=True), config)
@@ -128,3 +128,17 @@ def test_pick_tasks_follows_planned_order(tmp_path):
     batch = pick({"planned": ["b", "a", "d"], "max_tasks": 3, "max_parallel": 2, "tasks_done": 0})["batch"]
     assert [i["task"]["id"] for i in batch] == ["b", "d"]
     assert [i["task"]["id"] for i in pick({"max_tasks": 3, "max_parallel": 2})["batch"]] == ["a", "c"]
+
+
+def test_go_quota_spent_by_discover_stops_workers(tmp_path):
+    workers = []
+    explore = lambda name, known: (json.dumps([{"title": f"Úkol {name}"}]), {"usage": [], "quota": 0.95})
+    rank_all = lambda cands, n, f, w: (json.dumps([{"id": c["id"]} for c in cands]), {})
+    app, bp, c = go_graph(tmp_path, explore, rank_all, workers)
+    write(bp, "")
+    config = {"configurable": {"thread_id": "go"}, "recursion_limit": 100}
+    app.invoke(initial_state("go", c, True, discover=True), config)
+    asked = app.get_state(config).tasks[0].interrupts[0]
+    app.invoke(Command(resume={asked.id: [0, 1]}), config)
+    assert not workers
+    assert set(read(bp).values()) == {" "}  # approved, left for a run after the quota resets

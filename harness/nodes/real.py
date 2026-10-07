@@ -110,8 +110,8 @@ def _fresh_discover_worktree(p: Project) -> Path:
     return wt
 
 
-def real_explore(cfg: Config) -> Callable[[str, list[Task]], tuple[str, list[dict]]]:
-    def explore(name: str, known: list[Task]) -> tuple[str, list[dict]]:
+def real_explore(cfg: Config) -> Callable[[str, list[Task]], tuple[str, dict]]:
+    def explore(name: str, known: list[Task]) -> tuple[str, dict]:
         p = cfg.projects[name]
         wt = _fresh_discover_worktree(p)
         notes = captures_about(cfg.secondbrain[0], name, cfg.secondbrain[1]) if cfg.secondbrain else ""
@@ -120,16 +120,16 @@ def real_explore(cfg: Config) -> Callable[[str, list[Task]], tuple[str, list[dic
                                known="\n".join(f"  [{t.status}] {t.title}" for t in known) or "  (none)",
                                notes=notes or "(none)")
         r = run_agent(prompt, cwd=wt, model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=40)
-        return r.text, _agent_out("discover", r)["usage"]
+        return r.text, _agent_out("discover", r)
     return explore
 
 
-def real_rank(cands: list[dict], n: int, focus: dict, weights: dict) -> tuple[str, list[dict]]:
+def real_rank(cands: list[dict], n: int, focus: dict, weights: dict) -> tuple[str, dict]:
     rows = "\n".join(json.dumps({k: c[k] for k in RANK_FIELDS}, ensure_ascii=False) for c in cands)
     prompt = render_prompt("prioritize.md", n=n, candidates=rows,
                            focus=json.dumps(focus, ensure_ascii=False), weights=json.dumps(weights, ensure_ascii=False))
     r = run_agent(prompt, cwd=tempfile.gettempdir(), model="opus", tools=[], permission_mode="dontAsk", max_turns=1)
-    return r.text, _agent_out("prioritize", r)["usage"]
+    return r.text, _agent_out("prioritize", r)
 
 
 def real_nodes(cfg: Config) -> dict:

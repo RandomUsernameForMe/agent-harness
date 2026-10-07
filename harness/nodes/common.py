@@ -67,25 +67,31 @@ def _error(where: str, e: Exception) -> str:
     return f"{where}: {type(e).__name__}: {e}"
 
 
-def make_discover(backlog_path: Path, explore: Callable[[str, list[Task]], tuple[str, list[dict]]]):
-    """Proposals of one project (Send payload {"project"}). A failure costs only this project's proposals."""
+def _spent(agent: dict) -> dict:
+    """Usage and quota of an agent call; quota feeds pick_tasks' reserve check before workers start."""
+    return {"usage": agent.get("usage") or [], "quota": agent.get("quota")}
+
+
+def make_discover(backlog_path: Path, explore: Callable[[str, list[Task]], tuple[str, dict]]):
+    """Proposals of one project (Send payload {"project"}). A failure costs only this project's proposals.
+    `explore` returns the model's answer and {"usage", "quota"} of the call."""
     def discover(state: dict) -> dict:
         name = state["project"]
         with _backlog_lock:
             known = [t for t in backlog.parse(_read(backlog_path)) if t.project == name]
         try:
-            text, usage = explore(name, known)
+            text, agent = explore(name, known)
         except RateLimited:
             raise
         except Exception as e:
             return {"proposals": [], "go_errors": [_error(name, e)]}
         errors = [] if json_array(text) is not None else [f"{name}: odpověď bez JSON pole"]
-        return {"proposals": parse_proposals(text, name, known), "usage": usage, "go_errors": errors}
+        return {"proposals": parse_proposals(text, name, known), "go_errors": errors} | _spent(agent)
     return discover
 
 
 def make_prioritize(backlog_path: Path, cfg: Config,
-                    rank_fn: Callable[[list[dict], int, dict, dict], tuple[str, list[dict]]]):
+                    rank_fn: Callable[[list[dict], int, dict, dict], tuple[str, dict]]):
     weights = {name: p.weight for name, p in cfg.projects.items()}
 
     def prioritize(state: dict) -> dict:
@@ -96,14 +102,14 @@ def make_prioritize(backlog_path: Path, cfg: Config,
             return {"plan": []}
         n, focus = state.get("max_tasks", cfg.max_tasks_per_run), config_focus(cfg)
         try:
-            text, usage = rank_fn(cands, n, focus, weights)
+            text, agent = rank_fn(cands, n, focus, weights)
             errors = []
         except RateLimited:
             raise
         except Exception as e:
-            text, usage, errors = "", [], [_error("prioritize", e)]
+            text, agent, errors = "", {}, [_error("prioritize", e)]
         plan = parse_ranking(text, cands, n) or fallback_plan(cands, focus, weights, n)
-        return {"plan": plan, "usage": usage, "go_errors": errors}
+        return {"plan": plan, "go_errors": errors} | _spent(agent)
     return prioritize
 
 
