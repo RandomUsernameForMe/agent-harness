@@ -224,3 +224,48 @@ def test_pause_wins_over_question_and_one_resume_answers_both(tmp_path):
     assert answer_all(sim, conn, "ano") == "done"
     assert statuses(sim) == {"sim-a1": "x", "sim-b1": "x"}
     assert sim.script.calls["implement"] == 3  # b1 limited + retried, a1 once
+
+
+def test_go_happy_runs_approved_plan(tmp_path):
+    from harness.discover import proposal_id
+    from harness.runner import approvals
+    sim, conn, status = run("go-happy", tmp_path)
+    assert status == "approving"
+    asked = approvals(sim.app, sim.config)[0]
+    assert [p["title"] for p in asked["plan"]] == ["Testy pro parser", "Opravit odkaz v patičce",
+                                                   "Ruční úkol z BACKLOGu"]
+    status = execute(sim.app, None, sim.config, conn, simulated=True, answers={asked["id"]: [0, 1, 2]})
+    assert status == "done"
+    assert statuses(sim) == {"sim-01": "x", proposal_id("demo", "Testy pro parser"): "x",
+                             proposal_id("web", "Opravit odkaz v patičce"): "x",
+                             proposal_id("web", "Přepsat celý frontend"): "~"}
+    assert started(conn, sim)[:4] == ["discover", "discover", "prioritize", "approve"]
+
+
+def test_go_struck_task_is_rejected_and_not_run(tmp_path):
+    from harness.discover import proposal_id
+    from harness.runner import approvals
+    sim, conn, _ = run("go-happy", tmp_path)
+    asked = approvals(sim.app, sim.config)[0]
+    execute(sim.app, None, sim.config, conn, simulated=True, answers={asked["id"]: [0, 2]})
+    assert statuses(sim)[proposal_id("web", "Opravit odkaz v patičce")] == "-"
+    assert sim.script.calls["open_pr"] == 2
+
+
+def test_go_reject_all_parks_proposals(tmp_path):
+    from harness.discover import proposal_id
+    from harness.runner import approvals
+    sim, conn, status = run("go-reject-all", tmp_path)
+    asked = approvals(sim.app, sim.config)[0]
+    assert execute(sim.app, None, sim.config, conn, simulated=True, answers={asked["id"]: "q"}) == "done"
+    assert statuses(sim) == {proposal_id("demo", "Testy pro parser"): "~"}
+    assert "preflight" not in started(conn, sim)
+
+
+def test_go_discover_rate_limit_resumes_only_limited_project(tmp_path):
+    from harness.runner import approvals
+    sim, conn, status = run("go-discover-rate-limit", tmp_path)
+    assert status == "paused"
+    assert execute(sim.app, None, sim.config, conn, simulated=True) == "approving"
+    assert sim.script.calls["discover"] == 3  # demo once, web twice
+    assert len(approvals(sim.app, sim.config)[0]["plan"]) == 2

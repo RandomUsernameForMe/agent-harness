@@ -1,6 +1,8 @@
+import json
 import threading
 import time
 from collections import Counter
+from typing import Callable
 
 from ..graph import RateLimited
 
@@ -84,3 +86,20 @@ def fake_nodes(script: Script) -> dict:
 
     return {"preflight": preflight, "make_worktree": make_worktree, "plan": plan, "setup": setup,
             "implement": implement, "verify": verify, "open_pr": open_pr}
+
+
+def fake_explore(script: Script) -> Callable:
+    """Scenario `discover: {project: {proposals: [...]}}`; a list value advances per call of that project."""
+    def explore(project: str, known) -> tuple[str, list[dict]]:
+        v = script.next("discover", project)
+        return json.dumps(v.get("proposals", []), ensure_ascii=False), _usage("discover", "opus")
+    return explore
+
+
+def fake_rank(script: Script) -> Callable:
+    """Scenario `nodes: {prioritize: {pick: [1-based candidate indexes]}}`; default = all in candidate order."""
+    def rank_fn(cands: list[dict], n: int, focus: dict, weights: dict) -> tuple[str, list[dict]]:
+        v = script.next("prioritize")
+        picked = [cands[i - 1] for i in v.get("pick", range(1, len(cands) + 1))]
+        return json.dumps([{"id": c["id"], "why": "simulace"} for c in picked]), _usage("prioritize", "opus")
+    return rank_fn

@@ -1,0 +1,11 @@
+name: harness go — rate limit při objevování, resume nevolá hotové projekty znovu
+tasks: []
+discover:
+  demo:
+    proposals:
+      - {title: "Testy pro parser", kind: test, done: "npm test zelený"}
+  web:
+    - {rate_limit: 1}
+    - proposals:
+        - {title: "Opravit odkaz v patičce", kind: bug, done: "odkaz vede na /kontakt"}
+delay: 0.5

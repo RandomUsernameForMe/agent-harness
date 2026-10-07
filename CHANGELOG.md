@@ -29,3 +29,4 @@
 ## [2026-10-07] - Implementační plán harness go
 ## [2026-10-07] - harness go: čisté funkce (parsování návrhů a pořadí, schválení, zápis do BACKLOGu), poznámky secondbrainu k projektu
 ## [2026-10-07] - harness go: graf (Send discover → prioritize → approve interrupt), pick_tasks podle schváleného plánu
+## [2026-10-07] - harness go v terminálu: schválení plánu, simulace (go-happy, go-reject-all, go-discover-rate-limit)
