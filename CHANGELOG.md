@@ -33,3 +33,4 @@
 ## [2026-10-08] - harness go: reálný průzkum projektů (Opus, čerstvý worktree z origin, poznámky secondbrainu) a prioritizace
 ## [2026-10-08] - README: harness go
 ## [2026-10-08] - Opravy z review harness go: kvóta z discover/prioritize hlídá start workerů, robustní hledání JSON v odpovědi modelu, nehashovatelné id v pořadí neshodí běh
+## [2026-10-08] - První reálný harness go: 14 návrhů ze 3 projektů (BACKLOG [~]), plán zatím neschválen

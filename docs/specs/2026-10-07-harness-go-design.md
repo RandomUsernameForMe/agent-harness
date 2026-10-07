@@ -1,6 +1,6 @@
 # Harness — `harness go`: design
 
-Datum: 2026-10-07 · Stav: návrh ke schválení. Brainstorming s uživatelem (autonomie, zdroje, rozdělení, konec běhu, přístup A, sekce 1–3 schváleny).
+Datum: 2026-10-07 · Stav: implementováno. Kritéria 1–2 ověřena; reálný `harness go` (go-20261008-005514): 3 projekty, 14 návrhů, 0 chyb, plán 3 bezpečnostních bugů — vlastník zvolil `q` (vše `[~]`), PR zatím nevznikl.
 
 ## 1. Účel
 
