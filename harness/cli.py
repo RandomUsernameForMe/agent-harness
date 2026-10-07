@@ -13,7 +13,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from . import backlog, events, serve
 from .graph import build_graph, initial_state
 from .nodes.common import edit_backlog, make_approve, make_discover, make_pick_tasks, make_prioritize, make_report
-from .nodes.real import git, real_nodes, worktree_path
+from .nodes.real import git, real_explore, real_nodes, real_rank, worktree_path
 from .projects import load_config
 from .priority import config_focus, rank
 from .discover import format_plan, parse_approval
@@ -89,8 +89,8 @@ def _real_app(home: Path, cfg):
     backlog_path = home / "BACKLOG.md"
     conn, saver = open_db(home)
     nodes = real_nodes(cfg) | {"pick_tasks": make_pick_tasks(backlog_path, cfg), "report": make_report(backlog_path),
-                               "discover": make_discover(backlog_path, lambda name, known: ("[]", [])),
-                               "prioritize": make_prioritize(backlog_path, cfg, lambda c, n, f, w: ("[]", [])),
+                               "discover": make_discover(backlog_path, real_explore(cfg)),
+                               "prioritize": make_prioritize(backlog_path, cfg, real_rank),
                                "approve": make_approve(backlog_path)}
     return build_graph(nodes, saver), backlog_path, conn
 
