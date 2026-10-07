@@ -90,7 +90,7 @@ flowchart LR
 
 ## 5. CLI
 
-- `harness go [--step]` — nový běh s `discover=True`; interrupt `approve` řeší terminál (jako dnešní dotazy `clarify`). `harness run --resume RUN_ID` resumuje i běh z `go`.
+- `harness go` — nový běh s `discover=True`; interrupt `approve` řeší terminál (jako dnešní dotazy `clarify`). `harness run --resume RUN_ID` resumuje i běh z `go`.
 - `harness simulate <scénář>` — scénáře s klíčem `discover` spouští režim go.
 
 ## 6. Simulace
