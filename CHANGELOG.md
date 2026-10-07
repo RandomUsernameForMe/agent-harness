@@ -31,3 +31,4 @@
 ## [2026-10-07] - harness go: graf (Send discover → prioritize → approve interrupt), pick_tasks podle schváleného plánu
 ## [2026-10-07] - harness go v terminálu: schválení plánu, simulace (go-happy, go-reject-all, go-discover-rate-limit)
 ## [2026-10-08] - harness go: reálný průzkum projektů (Opus, čerstvý worktree z origin, poznámky secondbrainu) a prioritizace
+## [2026-10-08] - README: harness go
