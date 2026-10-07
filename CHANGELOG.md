@@ -27,3 +27,4 @@
 ## [2026-10-02] - Opravy z review fáze 3: démon drží rezervu kvóty mezi běhy, předávka výsledku běhu bez závodu, výjimka v tiku démona neshodí, sken 1× na okno, /answer v dashboardu atomicky, pozdní odpověď na už zodpovězený dotaz se ohlásí
 ## [2026-10-07] - Design spec harness go (objev úkolů modelem, prioritizace, schválení plánu v terminálu)
 ## [2026-10-07] - Implementační plán harness go
+## [2026-10-07] - harness go: čisté funkce (parsování návrhů a pořadí, schválení, zápis do BACKLOGu), poznámky secondbrainu k projektu

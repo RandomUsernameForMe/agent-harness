@@ -65,3 +65,15 @@ def test_focus_counts_recent_files_mentioning_project(tmp_path):
 
 def test_focus_missing_dir_is_empty(tmp_path):
     assert focus(tmp_path / "nope", ["a"], days=14, today=date(2026, 10, 1)) == {"a": 0}
+
+
+def test_captures_about_newest_first_and_capped(tmp_path):
+    from harness.priority import captures_about
+    (tmp_path / "Thoughts").mkdir()
+    (tmp_path / "Thoughts" / "2026-10-01 a.md").write_text("starší guth-pictures", encoding="utf-8")
+    (tmp_path / "Thoughts" / "2026-10-05 b.md").write_text("novější guth pictures", encoding="utf-8")
+    (tmp_path / "Thoughts" / "2026-10-06 c.md").write_text("o ničem", encoding="utf-8")
+    (tmp_path / "Thoughts" / "2026-01-01 d.md").write_text("stará guth-pictures", encoding="utf-8")
+    out = captures_about(tmp_path, "guth-pictures", 14, today=date(2026, 10, 7))
+    assert out.index("novější") < out.index("starší") and "o ničem" not in out and "stará" not in out
+    assert len(captures_about(tmp_path, "guth-pictures", 14, limit=20, today=date(2026, 10, 7))) == 20

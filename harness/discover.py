@@ -1,0 +1,123 @@
+"""Pure helpers of `harness go`: parse model answers, build the plan, write the owner's approval to BACKLOG."""
+import hashlib
+import json
+import re
+
+from . import backlog
+from .backlog import Task
+from .priority import rank
+
+KINDS = ("test", "bug", "debt", "feature", "docs")
+MAX_PROPOSALS = 5
+NEW_PRIORITY = 2
+FENCE_RE = re.compile(r"```(?:json)?\s*(\[.*?\])\s*```", re.DOTALL)
+
+
+def json_array(text: str) -> list | None:
+    """The JSON array of a model answer: a ```json fence, else the outermost [...]."""
+    m = FENCE_RE.search(text)
+    raw = m[1] if m else text[text.find("["): text.rfind("]") + 1]
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    return data if isinstance(data, list) else None
+
+
+def _line(value) -> str:
+    return " ".join(str(value or "").split())
+
+
+def proposal_id(project: str, title: str) -> str:
+    digest = hashlib.sha1(title.encode()).hexdigest()[:6]
+    return f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-ai-{digest}"
+
+
+def parse_proposals(text: str, project: str, known: list[Task]) -> list[dict]:
+    """Up to MAX_PROPOSALS new proposals. `known` = backlog tasks in any status, so rejected ones never return."""
+    ids, titles = {t.id for t in known}, {t.title.casefold() for t in known}
+    out: list[dict] = []
+    for item in json_array(text) or []:
+        title = _line(item.get("title"))[:100] if isinstance(item, dict) else ""
+        pid = proposal_id(project, title)
+        if not title or pid in ids or title.casefold() in titles:
+            continue
+        ids.add(pid)
+        titles.add(title.casefold())
+        out.append({"id": pid, "project": project, "title": title,
+                    "kind": item.get("kind") if item.get("kind") in KINDS else "debt",
+                    "description": str(item.get("description") or "").strip(),
+                    "why": _line(item.get("why")), "done": _line(item.get("done")), "source": "new"})
+    return out[:MAX_PROPOSALS]
+
+
+def candidates(proposals: list[dict], tasks: list[Task], projects: set[str]) -> list[dict]:
+    """New proposals (stable by project — parallel discover finishes in any order) + open backlog tasks."""
+    new = [p | {"priority": NEW_PRIORITY} for p in sorted(proposals, key=lambda p: p["project"])]
+    old = [{"id": t.id, "project": t.project, "title": t.title, "kind": "", "description": t.description,
+            "why": "", "done": "", "source": "backlog", "priority": t.priority}
+           for t in tasks if t.status == " " and t.project in projects]
+    return new + old
+
+
+def parse_ranking(text: str, cands: list[dict], n: int) -> list[dict]:
+    by_id = {c["id"]: c for c in cands}
+    plan: list[dict] = []
+    for item in json_array(text) or []:
+        cid = item.get("id") if isinstance(item, dict) else None
+        if cid in by_id and all(p["id"] != cid for p in plan):
+            plan.append(by_id[cid] | {"why": _line(item.get("why")) or by_id[cid]["why"]})
+    return plan[:n]
+
+
+def fallback_plan(cands: list[dict], focus: dict[str, int], weights: dict[str, int], n: int) -> list[dict]:
+    tasks = [Task(c["id"], c["project"], c["priority"], c["title"], " ", c["description"]) for c in cands]
+    by_id = {c["id"]: c for c in cands}
+    ranked = rank(tasks, {c["project"] for c in cands}, focus, weights)
+    return [by_id[t.id] | {"why": "fallback: pořadí podle priority"} for t in ranked[:n]]
+
+
+def parse_approval(answer: str, n: int) -> list[int] | str:
+    """"" = keep all, "2,5" = strike 2 and 5, "q" = quit. Anything else raises ValueError."""
+    a = answer.strip().lower()
+    if a == "q":
+        return "q"
+    drop = set()
+    for part in filter(None, re.split(r"[,\s]+", a)):
+        if not part.isdigit() or not 1 <= int(part) <= n:
+            raise ValueError(f"neplatná volba: {part} (čísla 1–{n}, Enter, q)")
+        drop.add(int(part) - 1)
+    return [i for i in range(n) if i not in drop]
+
+
+def task_lines(p: dict, status: str) -> list[str]:
+    lines = [f"- [{status}] P{NEW_PRIORITY} {p['id']} {p['title']}"]
+    lines += [f"  {row.strip()}" for row in p["description"].splitlines() if row.strip()]
+    return lines + ([f"  Hotovo = {p['done']}"] if p["done"] else [])
+
+
+def _status(pid: str, planned: set[str], kept: list[str] | None) -> str:
+    if kept is None:
+        return "~"
+    if pid in kept:
+        return " "
+    return "-" if pid in planned else "~"
+
+
+def apply_approval(text: str, proposals: list[dict], plan: list[dict], kept: list[str] | None) -> str:
+    """New proposals into BACKLOG once: approved [ ], struck out [-], not planned / quit [~]."""
+    planned, known = {p["id"] for p in plan}, {t.id for t in backlog.parse(text)}
+    for p in proposals:
+        if p["id"] not in known:
+            text = backlog.add_tasks(text, p["project"], task_lines(p, _status(p["id"], planned, kept)))
+    return text
+
+
+def format_plan(plan: list[dict]) -> str:
+    rows: list[str] = []
+    for i, p in enumerate(plan, 1):
+        src = "nový" if p["source"] == "new" else "z BACKLOGu"
+        rows.append(f"{i}. [{p['project']}] {p['kind'] or '-'} {p['title']} ({src})")
+        if p["why"]:
+            rows.append(f"     {p['why']}")
+    return "\n".join(rows)

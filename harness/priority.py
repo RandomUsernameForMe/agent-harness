@@ -50,6 +50,19 @@ def focus(root: Path, projects, days: int, today: date | None = None) -> dict[st
     return {name: sum(1 for t in texts if _mention_re(name).search(t)) for name in projects}
 
 
+def captures_about(root: Path, project: str, days: int, limit: int = 8000, today: date | None = None) -> str:
+    """Recent secondbrain captures mentioning the project, newest first, at most `limit` characters."""
+    since = (today or date.today()) - timedelta(days=days)
+    pattern, out = _mention_re(project), ""
+    for p in sorted(_recent_captures(Path(root), since), key=lambda p: p.name, reverse=True):
+        text = p.read_text(encoding="utf-8", errors="replace")
+        if pattern.search(text):
+            out += f"### {p.name}\n{text.strip()}\n\n"
+        if len(out) >= limit:
+            break
+    return out[:limit]
+
+
 def config_focus(cfg: Config) -> dict[str, int]:
     if cfg.secondbrain is None:
         return {}
