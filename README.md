@@ -5,6 +5,7 @@ LangGraph orchestrátor: úkol z `BACKLOG.md` → plán (Opus) → implementace 
     python -m venv .venv && .venv/Scripts/python -m pip install -e ".[dev]"
     .venv/Scripts/harness simulate flaky-tests [--step]
     .venv/Scripts/harness dashboard          # http://127.0.0.1:8765
+    .venv/Scripts/harness go                 # Opus navrhne a seřadí úkoly, schválíš plán, workery udělají draft PR
     .venv/Scripts/harness run [--resume RUN_ID]
     .venv/Scripts/harness prune              # smaže worktree hotových úkolů
     .venv/Scripts/harness queue              # seřazená fronta (P → fokus ze secondbrainu → weight)
@@ -13,6 +14,12 @@ LangGraph orchestrátor: úkol z `BACKLOG.md` → plán (Opus) → implementace 
 Fáze 2: `run` zpracovává až `max_parallel` úkolů z různých projektů najednou (LangGraph `Send` → worker subgraf). Návrh `[~]` se nespustí, dokud ho ručně nezměníš na `[ ]`. Běhy z fáze 1 nejdou resumovat novým grafem.
 
 Fáze 3: když plánovač označí úkol za nejasný, worker se zeptá (uzel `clarify`, LangGraph `interrupt`) a běh skončí ve stavu `waiting`. Na dotaz se odpovídá v terminálu (`run` / `simulate`), v dashboardu nebo z Telegramu. Po 2 kolech dotazů nebo po přeskočení se úkol zapíše jako `[?]`. Zamítnutý návrh má stav `[-]`.
+
+## `harness go`
+
+Jedno kolo bez ručního psaní úkolů. Pro každý projekt souběžně běží `discover`: Opus si v čerstvém read-only worktree z `origin/<base>` projde kód, dokumentaci projektu a poznámky ze secondbrainu (Thoughts/, Inbox/) a navrhne nejvýš 5 úkolů velikosti jednoho PR. `prioritize` pak z návrhů a otevřených úkolů v BACKLOGu sestaví plán o délce `max_tasks_per_run`. Když volání selže, plán sestaví klasické pořadí podle priority.
+
+Plán se ukáže v terminálu. Enter schválí všechno, `2,5` vyškrtne úkoly 2 a 5, `q` běh ukončí. Schválené úkoly se zapíšou jako `[ ]` a workery z nich udělají draft PR. Vyškrtnuté se zapíšou jako `[-]` a už se znovu nenavrhnou. Nevybrané a po `q` se zapíšou jako `[~]` na později. Po rate limitu se pokračuje přes `harness run --resume go-…` a průzkum projektů, které už doběhly, se znovu nespouští. Bez modelu jde vyzkoušet přes `harness simulate go-happy`.
 
 ## Autonomní běh: `harness serve`
 

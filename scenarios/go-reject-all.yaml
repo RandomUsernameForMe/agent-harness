@@ -1,0 +1,7 @@
+name: harness go — vlastník plán zamítne (q)
+tasks: []
+discover:
+  demo:
+    proposals:
+      - {title: "Testy pro parser", kind: test, done: "npm test zelený"}
+delay: 0.5

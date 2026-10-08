@@ -25,3 +25,13 @@
 ## [2026-10-02] - harness serve: démon s Telegram ovládáním (okno pro automatický start, dotazy s reply/timeoutem, schvalování návrhů, digest po okně, resume po rate limitu a restartu, pád = pauza), denní sken, serve v projects.yaml
 ## [2026-10-02] - README: harness serve (nastavení bota, Task Scheduler), screenshot dotazu v dashboardu
 ## [2026-10-02] - Opravy z review fáze 3: démon drží rezervu kvóty mezi běhy, předávka výsledku běhu bez závodu, výjimka v tiku démona neshodí, sken 1× na okno, /answer v dashboardu atomicky, pozdní odpověď na už zodpovězený dotaz se ohlásí
+## [2026-10-07] - Design spec harness go (objev úkolů modelem, prioritizace, schválení plánu v terminálu)
+## [2026-10-07] - Implementační plán harness go
+## [2026-10-07] - harness go: čisté funkce (parsování návrhů a pořadí, schválení, zápis do BACKLOGu), poznámky secondbrainu k projektu
+## [2026-10-07] - harness go: graf (Send discover → prioritize → approve interrupt), pick_tasks podle schváleného plánu
+## [2026-10-07] - harness go v terminálu: schválení plánu, simulace (go-happy, go-reject-all, go-discover-rate-limit)
+## [2026-10-08] - harness go: reálný průzkum projektů (Opus, čerstvý worktree z origin, poznámky secondbrainu) a prioritizace
+## [2026-10-08] - README: harness go
+## [2026-10-08] - Opravy z review harness go: kvóta z discover/prioritize hlídá start workerů, robustní hledání JSON v odpovědi modelu, nehashovatelné id v pořadí neshodí běh
+## [2026-10-08] - První reálný harness go: 14 návrhů ze 3 projektů (BACKLOG [~]), plán zatím neschválen
+## [2026-10-08] - Druhý reálný harness go: draft PR akano3#2 a guth-pictures#14 (pauza na rate limit + resume), 10 návrhů [~]

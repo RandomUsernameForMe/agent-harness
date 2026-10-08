@@ -34,6 +34,18 @@ class _Logger:
             if ev["type"] == "task":
                 self.workers[payload["id"]] = (payload.get("input") or {}).get("task", {}).get("id")
             return
+        if not ns and payload["name"] == "discover" and not payload.get("error"):
+            project = (payload.get("input") or {}).get("project")
+            if ev["type"] == "task":
+                self.log("start", node="discover", worker=project)
+            else:
+                result = payload.get("result") or {}
+                if not isinstance(result, dict):
+                    result = {}
+                self.log("end", node="discover", worker=project,
+                         delta={"proposals": len(result.get("proposals") or []), "go_errors": result.get("go_errors")},
+                         usage=result.get("usage") or None)
+            return
         worker = None
         if ns:
             parent_id = ns[0].partition(":")[2]
@@ -73,9 +85,14 @@ def questions(app, config: dict) -> list[dict]:
             if isinstance(i.value, dict) and "question" in i.value]
 
 
-def execute(app, inputs, config: dict, conn, simulated: bool, answers: dict[str, str] | None = None) -> str:
-    """Run or resume. `answers` maps question interrupt ids to the owner's answer ("" = skip); an unanswered
-    question asks again. A resume re-runs every interrupted node, so rate-limited ones retry on any resume —
+def approvals(app, config: dict) -> list[dict]:
+    return [{"id": i.id, **i.value} for i in open_interrupts(app, config)
+            if isinstance(i.value, dict) and "plan" in i.value]
+
+
+def execute(app, inputs, config: dict, conn, simulated: bool, answers: dict[str, object] | None = None) -> str:
+    """Run or resume. `answers` maps question interrupt ids to the owner's answer ("" = skip) and the plan
+    approval id to the kept indices (or "q"); an unanswered question asks again. A resume re-runs every interrupted node, so rate-limited ones retry on any resume —
     callers holding answers during a pause should wait for the reset (the quota is shared anyway)."""
     run_id = config["configurable"]["thread_id"]
     logger = _Logger(conn, run_id, simulated)
@@ -92,6 +109,9 @@ def execute(app, inputs, config: dict, conn, simulated: bool, answers: dict[str,
     if asked := questions(app, config):
         logger.log("waiting", delta={"questions": asked})
         return "waiting"
+    if plans := approvals(app, config):
+        logger.log("waiting", delta={"plan": plans[0]["plan"]})
+        return "approving"
     if app.get_state(config).next:
         return "interrupted"
     logger.log("run_end")

@@ -1,9 +1,13 @@
+import json
 import os
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Callable
 
+from ..backlog import Task
 from ..guard import check_diff, new_failures
+from ..priority import captures_about
 from ..projects import Config, Project
 from ..sdk import NO_PUBLISH, READ_TOOLS, WRITE_TOOLS, check_billing, render_prompt, run_agent
 
@@ -92,6 +96,40 @@ def clarification_block(answers: list[str]) -> str:
     if not answers:
         return ""
     return "\nThe owner answered your earlier questions:\n" + "\n".join(f"- {a}" for a in answers) + "\n"
+
+
+DISCOVER_WT = "_discover"
+RANK_FIELDS = ("id", "project", "title", "kind", "why", "done", "source", "priority")
+
+
+def _fresh_discover_worktree(p: Project) -> Path:
+    """Read-only checkout of origin/<base>; reused between runs, so reset it to the latest origin every time."""
+    wt = ensure_worktree(p, DISCOVER_WT, f"harness/{DISCOVER_WT}")
+    git(["fetch", "-q", "origin", p.base], p.path)
+    git(["reset", "-q", "--hard", f"origin/{p.base}"], wt)
+    return wt
+
+
+def real_explore(cfg: Config) -> Callable[[str, list[Task]], tuple[str, dict]]:
+    def explore(name: str, known: list[Task]) -> tuple[str, dict]:
+        p = cfg.projects[name]
+        wt = _fresh_discover_worktree(p)
+        notes = captures_about(cfg.secondbrain[0], name, cfg.secondbrain[1]) if cfg.secondbrain else ""
+        prompt = render_prompt("discover.md", project=name, max_diff_lines=p.max_diff_lines,
+                               verify="\n".join(f"  {c}" for c in p.verify),
+                               known="\n".join(f"  [{t.status}] {t.title}" for t in known) or "  (none)",
+                               notes=notes or "(none)")
+        r = run_agent(prompt, cwd=wt, model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=40)
+        return r.text, _agent_out("discover", r)
+    return explore
+
+
+def real_rank(cands: list[dict], n: int, focus: dict, weights: dict) -> tuple[str, dict]:
+    rows = "\n".join(json.dumps({k: c[k] for k in RANK_FIELDS}, ensure_ascii=False) for c in cands)
+    prompt = render_prompt("prioritize.md", n=n, candidates=rows,
+                           focus=json.dumps(focus, ensure_ascii=False), weights=json.dumps(weights, ensure_ascii=False))
+    r = run_agent(prompt, cwd=tempfile.gettempdir(), model="opus", tools=[], permission_mode="dontAsk", max_turns=1)
+    return r.text, _agent_out("prioritize", r)
 
 
 def real_nodes(cfg: Config) -> dict:

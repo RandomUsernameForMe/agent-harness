@@ -12,11 +12,12 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from . import backlog, events, serve
 from .graph import build_graph, initial_state
-from .nodes.common import edit_backlog, make_pick_tasks, make_report
-from .nodes.real import git, real_nodes, worktree_path
+from .nodes.common import edit_backlog, make_approve, make_discover, make_pick_tasks, make_prioritize, make_report
+from .nodes.real import git, real_explore, real_nodes, real_rank, worktree_path
 from .projects import load_config
 from .priority import config_focus, rank
-from .runner import execute, pending, questions, run_config
+from .discover import format_plan, parse_approval
+from .runner import approvals, execute, pending, questions, run_config
 from .scan import proposal_lines, scan_all
 from .sdk import check_billing
 from .simulate import prepare
@@ -43,6 +44,24 @@ def ask_in_terminal(app, config: dict) -> dict[str, str]:
             for q in questions(app, config)}
 
 
+def ask_approval(app, config: dict) -> dict:
+    out = {}
+    for a in approvals(app, config):
+        print(format_plan(a["plan"]))
+        while True:
+            try:
+                out[a["id"]] = parse_approval(input("Enter = vše, čísla = vyškrtnout (2,5), q = konec > "),
+                                              len(a["plan"]))
+                break
+            except ValueError as e:
+                print(e)
+    return out
+
+
+def answer_in_terminal(app, config: dict, status: str) -> dict:
+    return ask_approval(app, config) if status == "approving" else ask_in_terminal(app, config)
+
+
 def cmd_simulate(args) -> int:
     path = _scenario_path(args.home, args.scenario)
     if path is None:
@@ -52,9 +71,10 @@ def cmd_simulate(args) -> int:
     sim = prepare(path, Path(tempfile.mkdtemp(prefix="harness-sim-")), saver, step=args.step, delay=args.delay)
     print(f"run {sim.run_id}")
     status = execute(sim.app, sim.inputs, sim.config, conn, simulated=True)
-    while status in ("interrupted", "waiting"):
-        if status == "waiting":
-            status = execute(sim.app, None, sim.config, conn, simulated=True, answers=ask_in_terminal(sim.app, sim.config))
+    while status in ("interrupted", "waiting", "approving"):
+        if status in ("waiting", "approving"):
+            status = execute(sim.app, None, sim.config, conn, simulated=True,
+                             answers=answer_in_terminal(sim.app, sim.config, status))
             continue
         nxt = ", ".join(pending(sim.app, sim.config))
         if input(f"další uzel: {nxt} — Enter = krok, q = konec > ").strip().lower() == "q":
@@ -68,27 +88,41 @@ def cmd_simulate(args) -> int:
 def _real_app(home: Path, cfg):
     backlog_path = home / "BACKLOG.md"
     conn, saver = open_db(home)
-    nodes = real_nodes(cfg) | {"pick_tasks": make_pick_tasks(backlog_path, cfg), "report": make_report(backlog_path)}
+    nodes = real_nodes(cfg) | {"pick_tasks": make_pick_tasks(backlog_path, cfg), "report": make_report(backlog_path),
+                               "discover": make_discover(backlog_path, real_explore(cfg)),
+                               "prioritize": make_prioritize(backlog_path, cfg, real_rank),
+                               "approve": make_approve(backlog_path)}
     return build_graph(nodes, saver), backlog_path, conn
 
 
-def cmd_run(args) -> int:
+def _run(args, discover: bool) -> int:
     cfg = load_config(args.home / "projects.yaml")
     # preflight checks this per task, but --resume jumps straight back into implement
     if err := check_billing(cfg.billing, os.environ):
         print(err, file=sys.stderr)
         return 2
     app, backlog_path, conn = _real_app(args.home, cfg)
-    run_id = args.resume or f"run-{time.strftime('%Y%m%d-%H%M%S')}"
-    inputs = None if args.resume else initial_state(run_id, cfg, simulated=False)
+    resume = getattr(args, "resume", None)
+    run_id = resume or f"{'go' if discover else 'run'}-{time.strftime('%Y%m%d-%H%M%S')}"
+    inputs = None if resume else initial_state(run_id, cfg, simulated=False, discover=discover)
     config = run_config(run_id)
     status = execute(app, inputs, config, conn, simulated=False)
-    while status == "waiting":
-        status = execute(app, None, config, conn, simulated=False, answers=ask_in_terminal(app, config))
+    while status in ("waiting", "approving"):
+        status = execute(app, None, config, conn, simulated=False, answers=answer_in_terminal(app, config, status))
+    for err in app.get_state(config).values.get("go_errors") or []:
+        print(f"go: {err}", file=sys.stderr)
     print(f"{run_id} {status}")
     if status == "paused":
         print(f"resume: harness run --resume {run_id}")
     return 0
+
+
+def cmd_run(args) -> int:
+    return _run(args, discover=False)
+
+
+def cmd_go(args) -> int:
+    return _run(args, discover=True)
 
 
 def _scan_into(cfg, backlog_path: Path) -> int:
@@ -202,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--resume", metavar="RUN_ID")
     d = sub.add_parser("dashboard")
     d.add_argument("--port", type=int, default=8765)
+    sub.add_parser("go")
     sub.add_parser("serve")
     sub.add_parser("prune")
     sub.add_parser("queue")
@@ -211,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--limit", type=int, default=5)
     args = p.parse_args(argv)
     handlers = {"simulate": cmd_simulate, "run": cmd_run, "dashboard": cmd_dashboard, "prune": cmd_prune,
-                "queue": cmd_queue, "scan": cmd_scan, "serve": cmd_serve}
+                "queue": cmd_queue, "scan": cmd_scan, "serve": cmd_serve, "go": cmd_go}
     return handlers[args.cmd](args)
 
 
