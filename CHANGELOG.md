@@ -37,3 +37,4 @@
 ## [2026-10-08] - Druhý reálný harness go: draft PR akano3#2 a guth-pictures#14 (pauza na rate limit + resume), 10 návrhů [~]
 ## [2026-10-08] - Design spec fáze 4 (observabilita: trace volání agentů, cena za PR, výsledky PR)
 ## [2026-10-08] - Fáze 4: zachycení kroků agenta a cache tokenů v run_agent, kontext trace z config metadat LangGraphu, záznam i neúspěšných volání
+## [2026-10-08] - Fáze 4: ledger volání agentů (agent_calls, agent_steps), výsledky úkolů z gh (task_outcomes), harness stats s cenou za úkol a režií, doplnění starých běhů z event logu

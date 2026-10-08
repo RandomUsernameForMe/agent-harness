@@ -28,6 +28,8 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.execute(SCHEMA)
     if "worker" not in {r["name"] for r in conn.execute("PRAGMA table_info(events)")}:
         conn.execute("ALTER TABLE events ADD COLUMN worker TEXT")  # phase-1 database
+    from . import traces  # traces uses this module's lock
+    traces.ensure(conn)
     conn.commit()
     return conn
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from . import backlog, events, serve
+from . import backlog, events, serve, trace, traces
 from .graph import build_graph, initial_state
 from .nodes.common import edit_backlog, make_approve, make_discover, make_pick_tasks, make_prioritize, make_report
 from .nodes.real import git, real_explore, real_nodes, real_rank, worktree_path
@@ -88,6 +88,7 @@ def cmd_simulate(args) -> int:
 def _real_app(home: Path, cfg):
     backlog_path = home / "BACKLOG.md"
     conn, saver = open_db(home)
+    trace.set_sink(lambda call, steps: traces.record(conn, call, steps))
     nodes = real_nodes(cfg) | {"pick_tasks": make_pick_tasks(backlog_path, cfg), "report": make_report(backlog_path),
                                "discover": make_discover(backlog_path, real_explore(cfg)),
                                "prioritize": make_prioritize(backlog_path, cfg, real_rank),
@@ -102,6 +103,7 @@ def _run(args, discover: bool) -> int:
         print(err, file=sys.stderr)
         return 2
     app, backlog_path, conn = _real_app(args.home, cfg)
+    _sync_outcomes(conn, args.home)
     resume = getattr(args, "resume", None)
     run_id = resume or f"{'go' if discover else 'run'}-{time.strftime('%Y%m%d-%H%M%S')}"
     inputs = None if resume else initial_state(run_id, cfg, simulated=False, discover=discover)
@@ -114,6 +116,33 @@ def _run(args, discover: bool) -> int:
     print(f"{run_id} {status}")
     if status == "paused":
         print(f"resume: harness run --resume {run_id}")
+    return 0
+
+
+def _sync_outcomes(conn, home: Path) -> None:
+    try:
+        traces.sync_outcomes(conn, _read_backlog(home), traces.pr_state)
+    except Exception as e:  # outcomes are bookkeeping; never block a run on them
+        print(f"outcome sync failed: {e}", file=sys.stderr)
+
+
+def _money(v) -> str:
+    return f"{v or 0:.2f}"
+
+
+def cmd_stats(args) -> int:
+    conn, _ = open_db(args.home)
+    traces.backfill(conn)
+    _sync_outcomes(conn, args.home)
+    c = traces.costs(conn)
+    print(f"{'úkol':<28} {'projekt':<14} {'stav':<8} {'pokusy':>6} {'volání':>6} {'tokeny':>10} {'$':>7}  PR")
+    for t in c["tasks"]:
+        print(f"{t['task_id']:<28} {t['project'] or '-':<14} {t['state'] or '-':<8} {t['attempts']:>6} "
+              f"{t['calls']:>6} {t['tokens'] or 0:>10} {_money(t['cost_usd']):>7}  {t['pr_url'] or ''}")
+    for o in c["overhead"]:
+        print(f"režie {o['run_id']} {o['node']}: {o['calls']}× {o['tokens'] or 0} tokenů {_money(o['cost_usd'])} $")
+    total = sum(r["cost_usd"] or 0 for r in c["tasks"] + c["overhead"])
+    print(f"celkem {_money(total)} $" if c["tasks"] or c["overhead"] else "žádná zaznamenaná volání")
     return 0
 
 
@@ -237,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("dashboard")
     d.add_argument("--port", type=int, default=8765)
     sub.add_parser("go")
+    sub.add_parser("stats")
     sub.add_parser("serve")
     sub.add_parser("prune")
     sub.add_parser("queue")
@@ -246,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--limit", type=int, default=5)
     args = p.parse_args(argv)
     handlers = {"simulate": cmd_simulate, "run": cmd_run, "dashboard": cmd_dashboard, "prune": cmd_prune,
-                "queue": cmd_queue, "scan": cmd_scan, "serve": cmd_serve, "go": cmd_go}
+                "queue": cmd_queue, "scan": cmd_scan, "serve": cmd_serve, "go": cmd_go, "stats": cmd_stats}
     return handlers[args.cmd](args)
 
 
