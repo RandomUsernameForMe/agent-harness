@@ -96,7 +96,7 @@
 - [-] P2 secondbrain-ai-340377 Bot: dlouhé odpovědi (/q, digest) rozdělit podle limitu 4096 znaků Telegramu
   bot/telegram.py send_message posílá text vcelku. Telegram odmítne zprávy delší než 4096 znaků, takže odpověď na /q nebo týdenní digest s dlouhým výstupem (max_tokens 1500) shodí celý běh v main.py ještě před state.save. Přidat čistou funkci `split_message(text, limit=4096)`, která text dělí přednostně na hranicích odstavců a řádků. send_message pak pošle části postupně a vrátí první odeslanou zprávu, aby record_sent a pending dál fungovaly. Testy patří do bot/test_telegram.py.
   Hotovo = Testy v bot/test_telegram.py ověří, že split_message vrátí pro text kratší než 4096 znaků jeden kus, pro text o 10 000 znacích kusy po nejvýš 4096 znacích, jejichž spojení dá původní text, a že dělí na hranici odstavce, pokud ji najde. Projde `pytest bot -q`.
-- [~] P2 secondbrain-ai-9fa984 Bot: State.load nesmí spadnout na neznámé klíče ve state.json
+- [x] P2 secondbrain-ai-9fa984 Bot: State.load nesmí spadnout na neznámé klíče ve state.json → https://github.com/RandomUsernameForMe/secondbrain/pull/1
   bot/models.py State.load volá `cls(**json.load(f))`. Když state.json obsahuje klíč, který dataclass nezná (třeba po odebrání pole nebo při rollbacku na starší verzi), skončí to TypeError a bot se vůbec nespustí. Oprava: před konstrukcí odfiltrovat klíče na ty z `dataclasses.fields(cls)`. Chybějící klíče už teď pokrývají defaulty. Přidat test do bot/test_models.py.
   Hotovo = Test v bot/test_models.py zapíše do state.json `{"offset": 3, "obsolete_field": 1}`. State.load vrátí offset 3 bez výjimky. Projde `pytest bot -q`.
 - [~] P2 secondbrain-ai-d2c742 Web: wikilink s cestou nebo příponou ([[Concepts/X]], [[X.md]]) nesmí tvořit ducha

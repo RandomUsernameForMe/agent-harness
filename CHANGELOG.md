@@ -35,3 +35,12 @@
 ## [2026-10-08] - Opravy z review harness go: kvóta z discover/prioritize hlídá start workerů, robustní hledání JSON v odpovědi modelu, nehashovatelné id v pořadí neshodí běh
 ## [2026-10-08] - První reálný harness go: 14 návrhů ze 3 projektů (BACKLOG [~]), plán zatím neschválen
 ## [2026-10-08] - Druhý reálný harness go: draft PR akano3#2 a guth-pictures#14 (pauza na rate limit + resume), 10 návrhů [~]
+## [2026-10-08] - Design spec fáze 4 (observabilita: trace volání agentů, cena za PR, výsledky PR)
+## [2026-10-08] - Fáze 4: zachycení kroků agenta a cache tokenů v run_agent, kontext trace z config metadat LangGraphu, záznam i neúspěšných volání
+## [2026-10-08] - Fáze 4: ledger volání agentů (agent_calls, agent_steps), výsledky úkolů z gh (task_outcomes), harness stats s cenou za úkol a režií, doplnění starých běhů z event logu
+## [2026-10-08] - Fáze 4: dashboard (volání agentů běhu → kroky, cena za úkol s odkazem na PR, cache tokeny ve spotřebě); oprava: end události discover nesly prázdný worker
+## [2026-10-08] - README: observabilita, harness stats
+## [2026-10-08] - Opravy z review fáze 4: chyba zápisu trace nepřepíše výsledek ani pauzu na rate limit, gh s timeoutem a bez dotazů na merged/closed PR, backfill po eventech (obnovené běhy), indexy, Ctrl+C se nezapíše jako ok, pokusy bez rate-limited volání
+## [2026-10-08] - Dashboard: výraznější hierarchie nadpisů (h1 20 px, h2 15 px)
+## [2026-10-08] - Ostrý běh s trace: draft PR secondbrain#1 (0,32 $, 2 pokusy — první zablokoval guard na CHANGELOG.md mimo allowed)
+## [2026-10-08] - secondbrain: CHANGELOG.md v allowed (worker ho podle konvence projektu upravuje)

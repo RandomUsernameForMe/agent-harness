@@ -2,9 +2,11 @@ import operator
 from subprocess import CalledProcessError
 from typing import Annotated, Callable, TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy, Send, interrupt
 
+from . import trace
 from .projects import Config
 
 WORKER_NODES = ("preflight", "make_worktree", "plan", "setup", "implement", "verify", "open_pr", "report")
@@ -112,9 +114,11 @@ def _linear(nxt: str) -> Callable[[WorkerState], str]:
 
 
 def _pausing(fn: Callable) -> Callable:
-    def wrapped(state: dict) -> dict:
+    def wrapped(state: dict, config: RunnableConfig | None = None) -> dict:
+        # LangGraph injects `config` (thread id, running node in metadata) → agent calls know whose they are
         try:
-            return fn(state)
+            with trace.context(trace.from_config(state, config)):
+                return fn(state)
         except RateLimited as e:
             limited = e
         # interrupt, not an exception: an exception cancels the step and parallel siblings would finish
