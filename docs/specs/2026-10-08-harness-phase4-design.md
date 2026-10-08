@@ -1,6 +1,6 @@
 # Harness — fáze 4: observabilita (design)
 
-Datum: 2026-10-08 · Stav: návrh ke schválení. Sekce 1 (zachycení dat, úložiště) schválena v konverzaci; sekce 2–3 doplněny jako defaulty k revizi.
+Datum: 2026-10-08 · Stav: implementováno, kritéria 1–3 ověřena (run-20261008-230938: secondbrain#1, 3 volání s cache tokeny a 31 kroky, 0,32 $).
 
 ## 1. Účel
 
