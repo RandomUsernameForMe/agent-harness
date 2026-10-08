@@ -30,4 +30,4 @@ projects:
     setup: ["npm ci --prefix web", 'python -m venv ..\_venv && ..\_venv\Scripts\python -m pip install -q -r bot\requirements.txt pytest']
     # -X utf8: test_vault padá na Windows cp1252; bot běží na Linuxu (GitHub Actions)
     verify: ['..\_venv\Scripts\python -X utf8 -m pytest bot -q', "npm test --prefix web"]
-    allowed: ["bot/**", "web/**", "scripts/**"]
+    allowed: ["bot/**", "web/**", "scripts/**", "CHANGELOG.md"]

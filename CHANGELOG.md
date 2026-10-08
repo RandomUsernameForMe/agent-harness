@@ -43,3 +43,4 @@
 ## [2026-10-08] - Opravy z review fáze 4: chyba zápisu trace nepřepíše výsledek ani pauzu na rate limit, gh s timeoutem a bez dotazů na merged/closed PR, backfill po eventech (obnovené běhy), indexy, Ctrl+C se nezapíše jako ok, pokusy bez rate-limited volání
 ## [2026-10-08] - Dashboard: výraznější hierarchie nadpisů (h1 20 px, h2 15 px)
 ## [2026-10-08] - Ostrý běh s trace: draft PR secondbrain#1 (0,32 $, 2 pokusy — první zablokoval guard na CHANGELOG.md mimo allowed)
+## [2026-10-08] - secondbrain: CHANGELOG.md v allowed (worker ho podle konvence projektu upravuje)
