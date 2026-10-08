@@ -131,3 +131,19 @@ def test_second_answer_while_resuming_is_rejected(client, monkeypatch):
     assert client.post(f"/runs/{run_id}/answer", json={"id": q["id"], "answer": "a"}).status_code == 200
     assert client.post(f"/runs/{run_id}/answer", json={"id": q["id"], "answer": "b"}).status_code == 409
     assert started == [1]
+
+
+def test_calls_steps_and_costs(tmp_path):
+    from harness import events, traces
+    shutil.copytree(ROOT / "scenarios", tmp_path / "scenarios")
+    conn = events.connect(tmp_path / "harness.db")
+    cid = traces.record(conn, {"run_id": "go-1", "worker": "ak-01", "node": "plan", "model": "opus",
+                               "input_tokens": 1, "output_tokens": 2, "cache_read_tokens": 3, "cache_write_tokens": 4,
+                               "cost_usd": 0.5, "status": "ok"},
+                        [{"kind": "tool_use", "tool": "Read", "summary": "{}", "is_error": False}])
+    client = TestClient(create_app(tmp_path))
+    calls = client.get("/runs/go-1/calls").json()
+    assert [(c["id"], c["node"], c["steps"]) for c in calls] == [(cid, "plan", 1)]
+    assert client.get(f"/calls/{cid}/steps").json()[0]["tool"] == "Read"
+    costs = client.get("/costs").json()
+    assert costs["tasks"][0]["task_id"] == "ak-01" and costs["tasks"][0]["cost_usd"] == 0.5

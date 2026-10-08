@@ -60,9 +60,11 @@
     <div id="questions" aria-live="polite"></div>
     <h2 style="margin-top:12px">Detail uzlu</h2><pre id="detail">Klikni na uzel nebo event.</pre></section>
   <section><h2>Běhy</h2><div class="scroll"><table id="runs"></table></div>
-    <h2 style="margin-top:12px">Události běhu</h2><div class="scroll"><table id="events"></table></div></section>
+    <h2 style="margin-top:12px">Události běhu</h2><div class="scroll"><table id="events"></table></div>
+    <h2 style="margin-top:12px">Volání agentů</h2><div class="scroll"><table id="calls"></table></div></section>
   <section><h2>Backlog</h2><table id="backlog"></table></section>
   <section><h2>Spotřeba</h2><div id="quota"></div><table id="usage"></table></section>
+  <section><h2>Cena za úkol</h2><div class="scroll"><table id="costs"></table></div></section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js" integrity="sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2" crossorigin="anonymous"></script>
 <script>
@@ -125,7 +127,31 @@ async function selectRun(runId) {
   evs.forEach((e) => { addEventRow(e); track(e); });
   if (["run_end", "paused", "waiting"].includes(evs.at(-1)?.kind)) active = {};
   paintActive();
-  await Promise.all([loadRuns(), loadBacklog(), refreshStepButton()]);
+  await Promise.all([loadRuns(), loadBacklog(), loadCalls(), refreshStepButton()]);
+}
+
+const money = (v) => (v ?? 0).toFixed(2);
+const tokens = (c) => (c.input_tokens ?? 0) + (c.output_tokens ?? 0) + (c.cache_read_tokens ?? 0) + (c.cache_write_tokens ?? 0);
+
+async function loadCalls() {
+  if (!selectedRun) return;
+  const calls = await api(`/runs/${encodeURIComponent(selectedRun)}/calls`);
+  $("calls").innerHTML = calls.length ? "<tr><th>Uzel</th><th>Worker</th><th>Model</th><th>Tahy</th><th>Kroky</th><th>Tokeny</th><th>$</th><th>Stav</th></tr>" + calls.map((c) =>
+    `<tr data-call="${c.id}" style="cursor:pointer"><td>${esc(c.node)}</td><td class="muted">${esc(c.worker)}</td><td>${esc(c.model)}</td><td>${c.num_turns ?? ""}</td><td>${c.steps}</td><td>${tokens(c)}</td><td>${money(c.cost_usd)}</td><td class="${c.status === "ok" ? "" : "k-error"}">${esc(c.status)}</td></tr>`).join("")
+    : '<tr><td class="muted">Žádná zaznamenaná volání (simulace nebo běh před fází 4).</td></tr>';
+  $("calls").querySelectorAll("tr[data-call]").forEach((tr) => tr.onclick = () => showSteps(tr.dataset.call));
+}
+
+async function showSteps(callId) {
+  const steps = await api(`/calls/${callId}/steps`);
+  $("detail").textContent = steps.map((s) => `${String(s.seq).padStart(3)} ${s.kind.padEnd(11)} ${s.tool ?? ""}${s.is_error ? " ✗" : ""}\n    ${s.summary}`).join("\n") || "Volání bez kroků.";
+}
+
+async function loadCosts() {
+  const { tasks, overhead } = await api("/costs");
+  $("costs").innerHTML = "<tr><th>Úkol</th><th>Projekt</th><th>Stav</th><th>Pokusy</th><th>Tokeny</th><th>$</th></tr>" + tasks.map((t) =>
+    `<tr><td>${t.pr_url ? `<a href="${esc(t.pr_url)}" target="_blank" rel="noopener">${esc(t.task_id)}</a>` : esc(t.task_id)}</td><td class="muted">${esc(t.project)}</td><td>${esc(t.state ?? "-")}</td><td>${t.attempts}</td><td>${t.tokens}</td><td>${money(t.cost_usd)}</td></tr>`).join("") +
+    overhead.map((o) => `<tr class="muted"><td colspan="3">režie ${esc(o.run_id)} · ${esc(o.node)}</td><td>${o.calls}×</td><td>${o.tokens}</td><td>${money(o.cost_usd)}</td></tr>`).join("");
 }
 
 function addEventRow(e) {
@@ -151,7 +177,7 @@ async function loadUsage() {
   $("quota").innerHTML = util == null ? '<p class="muted">Kvóta: zatím žádná data ze skutečného běhu.</p>' :
     `<p>Okno ${esc(rate_limit.type)}: ${(util * 100).toFixed(0)} %${rate_limit.resets_at ? ", reset " + new Date(rate_limit.resets_at * 1000).toLocaleTimeString() : ""}</p><div class="meter"><div style="width:${Math.min(util * 100, 100)}%"></div></div>`;
   $("usage").innerHTML = "<tr><th>Den</th><th>Uzel</th><th>Model</th><th>Tokeny</th><th>$</th></tr>" + summary.map((u) =>
-    `<tr><td>${esc(u.day)}${u.simulated ? ' <span class="tag">sim</span>' : ""}</td><td>${esc(u.node)}</td><td>${esc(u.model)}</td><td>${u.input_tokens + u.output_tokens}</td><td>${(u.cost_usd ?? 0).toFixed(3)}</td></tr>`).join("");
+    `<tr><td>${esc(u.day)}${u.simulated ? ' <span class="tag">sim</span>' : ""}</td><td>${esc(u.node)}</td><td>${esc(u.model)}</td><td>${u.input_tokens + u.output_tokens + (u.cache_tokens ?? 0)}</td><td>${(u.cost_usd ?? 0).toFixed(3)}</td></tr>`).join("");
 }
 
 async function refreshStepButton() {
@@ -211,12 +237,12 @@ function listen() {
       if (e.kind === "end") refreshStepButton();
     }
     if (["run_start", "run_end", "paused", "waiting"].includes(e.kind)) loadRuns();
-    if (e.usage) loadUsage();
+    if (e.usage) { loadUsage(); loadCosts(); if (e.run_id === selectedRun) loadCalls(); }
   };
 }
 
 (async () => {
-  await Promise.all([renderGraph(), loadScenarios(), loadRuns(), loadBacklog(), loadUsage()]);
+  await Promise.all([renderGraph(), loadScenarios(), loadRuns(), loadBacklog(), loadUsage(), loadCosts()]);
   const runs = await api("/runs");
   if (runs.length) {
     const evs = await api(`/runs/${encodeURIComponent(runs[0].run_id)}/events`);

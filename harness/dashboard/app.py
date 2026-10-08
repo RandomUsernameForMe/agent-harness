@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from .. import backlog, events
+from .. import backlog, events, traces
 from ..graph import graph_mermaid, worker_mermaid
 from ..runner import execute, pending, questions
 from ..simulate import Simulation, prepare
@@ -86,6 +86,18 @@ def create_app(home: Path) -> FastAPI:
         if not path.exists():
             return []
         return [asdict(t) for t in backlog.parse(path.read_bytes().decode("utf-8"))]
+
+    @app.get("/runs/{run_id}/calls")
+    def run_calls(run_id: str):
+        return traces.calls(conn, run_id)
+
+    @app.get("/calls/{call_id}/steps")
+    def call_steps(call_id: int):
+        return traces.steps(conn, call_id)
+
+    @app.get("/costs")
+    def costs():
+        return traces.costs(conn)
 
     @app.get("/usage")
     def usage():

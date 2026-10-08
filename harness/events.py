@@ -94,13 +94,15 @@ def runs(conn) -> list[dict]:
 def usage_summary(conn) -> list[dict]:
     with _lock:
         rows = conn.execute("SELECT ts, usage, simulated FROM events WHERE usage IS NOT NULL").fetchall()
-    totals: dict[tuple, dict] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0})
+    totals: dict[tuple, dict] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "cache_tokens": 0,
+                                                     "cost_usd": 0.0})
     for r in rows:
         day = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
         for u in json.loads(r["usage"]):
             t = totals[(day, u.get("node"), u.get("model"), bool(r["simulated"]))]
             t["input_tokens"] += u.get("input_tokens") or 0
             t["output_tokens"] += u.get("output_tokens") or 0
+            t["cache_tokens"] += (u.get("cache_read_tokens") or 0) + (u.get("cache_write_tokens") or 0)
             t["cost_usd"] += u.get("cost_usd") or 0.0
     return [{"day": d, "node": n, "model": m, "simulated": s, **v} for (d, n, m, s), v in sorted(totals.items())]
 

@@ -35,7 +35,10 @@ class _Logger:
                 self.workers[payload["id"]] = (payload.get("input") or {}).get("task", {}).get("id")
             return
         if not ns and payload["name"] == "discover" and not payload.get("error"):
-            project = (payload.get("input") or {}).get("project")
+            # only the "task" event carries the Send input; remember the project for its task_result
+            if ev["type"] == "task":
+                self.workers[payload["id"]] = (payload.get("input") or {}).get("project")
+            project = self.workers.get(payload["id"])
             if ev["type"] == "task":
                 self.log("start", node="discover", worker=project)
             else:

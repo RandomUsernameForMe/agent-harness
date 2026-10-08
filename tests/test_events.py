@@ -49,3 +49,12 @@ def test_worker_column_and_migration_of_phase1_db(tmp_path):
     rows = events.events_after(conn)
     assert [(r["run_id"], r["worker"]) for r in rows] == [("r0", None), ("r1", "gp-01")]
     events.connect(db)  # second migration is a no-op
+
+
+def test_usage_summary_counts_cache_tokens(tmp_path):
+    conn = events.connect(tmp_path / "h.db")
+    events.log(conn, "r1", "end", node="plan", usage=[{"node": "plan", "model": "opus", "input_tokens": 5,
+                                                       "output_tokens": 10, "cache_read_tokens": 900,
+                                                       "cache_write_tokens": 100, "cost_usd": 0.2}])
+    [u] = events.usage_summary(conn)
+    assert u["cache_tokens"] == 1000

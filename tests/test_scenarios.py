@@ -269,3 +269,9 @@ def test_go_discover_rate_limit_resumes_only_limited_project(tmp_path):
     assert execute(sim.app, None, sim.config, conn, simulated=True) == "approving"
     assert sim.script.calls["discover"] == 3  # demo once, web twice
     assert len(approvals(sim.app, sim.config)[0]["plan"]) == 2
+
+
+def test_go_discover_events_carry_project(tmp_path):
+    sim, conn, _ = run("go-happy", tmp_path)
+    evs = [(e["kind"], e["worker"]) for e in events.events_after(conn, 0, sim.run_id) if e["node"] == "discover"]
+    assert sorted(evs) == [("end", "demo"), ("end", "web"), ("start", "demo"), ("start", "web")]
