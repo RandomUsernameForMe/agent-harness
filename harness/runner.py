@@ -53,22 +53,45 @@ class _Logger:
                      usage=result.get("usage") or None, rate_limit=result.get("rate_limit"))
 
 
+def open_interrupts(app, config: dict) -> list:
+    """Interrupts still waiting. `get_state().interrupts` also keeps the answered interrupt of a worker that
+    finished while a sibling still waits, so only unfinished tasks count."""
+    return [i for t in app.get_state(config).tasks if t.result is None for i in t.interrupts]
+
+
 def _rate_limit_pauses(app, config: dict) -> list:
-    return [i for i in app.get_state(config).interrupts if isinstance(i.value, dict) and "rate_limited" in i.value]
+    return [i for i in open_interrupts(app, config) if isinstance(i.value, dict) and "rate_limited" in i.value]
 
 
-def execute(app, inputs, config: dict, conn, simulated: bool) -> str:
+def resets_at(app, config: dict) -> int | None:
+    """When the latest rate limit of a paused run resets (None = unknown or not paused)."""
+    return max((i.value["rate_limited"] or 0 for i in _rate_limit_pauses(app, config)), default=0) or None
+
+
+def questions(app, config: dict) -> list[dict]:
+    return [{"id": i.id, **i.value} for i in open_interrupts(app, config)
+            if isinstance(i.value, dict) and "question" in i.value]
+
+
+def execute(app, inputs, config: dict, conn, simulated: bool, answers: dict[str, str] | None = None) -> str:
+    """Run or resume. `answers` maps question interrupt ids to the owner's answer ("" = skip); an unanswered
+    question asks again. A resume re-runs every interrupted node, so rate-limited ones retry on any resume —
+    callers holding answers during a pause should wait for the reset (the quota is shared anyway)."""
     run_id = config["configurable"]["thread_id"]
     logger = _Logger(conn, run_id, simulated)
     if inputs is not None:
         logger.log("run_start")
-    elif pauses := _rate_limit_pauses(app, config):
-        inputs = Command(resume={i.id: True for i in pauses})
+    else:
+        if resume := {i.id: True for i in _rate_limit_pauses(app, config)} | (answers or {}):
+            inputs = Command(resume=resume)
     for ns, _, ev in app.stream(inputs, config, stream_mode=["debug"], subgraphs=True):
         logger.debug(ns, ev)
-    if pauses := _rate_limit_pauses(app, config):
-        logger.log("paused", rate_limit={"resets_at": max((i.value["rate_limited"] or 0) for i in pauses) or None})
+    if _rate_limit_pauses(app, config):
+        logger.log("paused", rate_limit={"resets_at": resets_at(app, config)})
         return "paused"
+    if asked := questions(app, config):
+        logger.log("waiting", delta={"questions": asked})
+        return "waiting"
     if app.get_state(config).next:
         return "interrupted"
     logger.log("run_end")

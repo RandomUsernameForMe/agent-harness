@@ -1,9 +1,12 @@
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
+from datetime import time
 from pathlib import Path
 
 import yaml
 
 REQUIRED = ("path", "base", "verify")
+WINDOW_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$")
 
 
 @dataclass(frozen=True)
@@ -20,6 +23,13 @@ class Project:
 
 
 @dataclass(frozen=True)
+class Serve:
+    window: tuple[time, time] | None = None  # None = no automatic start, only /run
+    question_timeout_hours: float = 24
+    scan: bool = True
+
+
+@dataclass(frozen=True)
 class Config:
     billing: str
     max_tasks_per_run: int
@@ -27,6 +37,7 @@ class Config:
     projects: dict[str, Project]
     max_parallel: int = 2
     secondbrain: tuple[Path, int] | None = None  # (vault path, look-back days)
+    serve: Serve = field(default_factory=Serve)
 
 
 def load_config(path: Path) -> Config:
@@ -46,7 +57,23 @@ def load_config(path: Path) -> Config:
     brain = raw.get("secondbrain")
     secondbrain = ((path.parent / brain["path"]).resolve(), brain.get("days", 14)) if brain else None
     return Config(billing, raw.get("max_tasks_per_run", 3), raw.get("quota_threshold", 0.7), projects,
-                  max_parallel, secondbrain)
+                  max_parallel, secondbrain, _serve(raw.get("serve") or {}))
+
+
+def _window(text: str) -> tuple[time, time]:
+    m = WINDOW_RE.match(str(text))
+    try:
+        start, end = time(int(m[1]), int(m[2])), time(int(m[3]), int(m[4]))
+    except (TypeError, ValueError):  # no match / hour 25
+        raise ValueError(f"serve.window must look like 22:00-07:00, got {text!r}") from None
+    if start == end:
+        raise ValueError(f"serve.window is empty: {text!r}")
+    return start, end
+
+
+def _serve(raw: dict) -> Serve:
+    return Serve(_window(raw["window"]) if raw.get("window") else None,
+                 raw.get("question_timeout_hours", 24), raw.get("scan", True))
 
 
 def _project(name: str, spec: dict, defaults: dict, root: Path) -> Project:

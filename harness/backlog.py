@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 HEADER_RE = re.compile(r"^## (?P<project>\S+)\s*$")
 # id becomes a git branch name and CLI argument → restrict to safe characters
-TASK_RE = re.compile(r"^- \[(?P<status>[ x!?~])\] P(?P<prio>[1-3]) (?P<id>[A-Za-z0-9._-]+) (?P<rest>.+)$")
+TASK_RE = re.compile(r"^- \[(?P<status>[ x!?~-])\] P(?P<prio>[1-3]) (?P<id>[A-Za-z0-9._-]+) (?P<rest>.+)$")
 SUFFIX_RE = re.compile(r" (?:→|—) ")
 
 

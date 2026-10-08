@@ -5,3 +5,4 @@ __pycache__/
 *.egg-info/
 .superpowers/
 .playwright-mcp/
+serve_state.*

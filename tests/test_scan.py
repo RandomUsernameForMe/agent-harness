@@ -48,3 +48,17 @@ def test_new_proposals_skip_ids_in_backlog_and_lines_parse(tmp_path):
     [t] = parse("## demo\n" + "\n".join(proposal_lines(left)) + "\n")
     assert (t.status, t.priority, t.title) == ("~", 3, "TODO: two")
     assert "a.py:2" in t.description
+
+
+def test_daemon_scan_appends_new_proposals_once(tmp_path):
+    from harness.cli import _scan_into
+    from harness.projects import Config
+    repo = make_repo(tmp_path)
+    commit_files(repo, {"src/a.ts": "// TODO: handle empty album\n"})
+    cfg = Config("subscription", 3, 0.7, {"demo": project(repo)})
+    backlog_path = tmp_path / "BACKLOG.md"
+    backlog_path.write_bytes("## demo\r\n- [ ] P1 d-1 Existující\r\n".encode("utf-8"))
+    assert _scan_into(cfg, backlog_path) == 1
+    assert _scan_into(cfg, backlog_path) == 0
+    tasks = parse(backlog_path.read_bytes().decode("utf-8"))
+    assert [t.status for t in tasks] == [" ", "~"]

@@ -79,3 +79,19 @@ def test_add_tasks_creates_section_and_keeps_crlf():
 
 def test_add_tasks_to_empty_file():
     assert add_tasks("", "c", ["- [~] P3 c-1 New"]) == "## c\n- [~] P3 c-1 New\n"
+
+
+def test_rejected_status_parsed_and_never_ranked():
+    from harness.priority import rank
+    text = set_status("## demo\n- [~] P3 d-1 TODO: x\n", "d-1", "-", " — zamítnuto")
+    [t] = parse(text)
+    assert (t.status, t.title) == ("-", "TODO: x")
+    assert rank([t], {"demo"}) == []
+
+
+def test_edit_backlog_keeps_bytes(tmp_path):
+    from harness.nodes.common import edit_backlog
+    p = tmp_path / "BACKLOG.md"
+    p.write_bytes("## demo\r\n- [~] P3 d-1 Návrh\r\n".encode("utf-8"))
+    edit_backlog(p, lambda text: set_status(text, "d-1", " "))
+    assert p.read_bytes().decode("utf-8") == "## demo\r\n- [ ] P3 d-1 Návrh\r\n"

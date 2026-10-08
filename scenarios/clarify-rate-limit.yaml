@@ -1,0 +1,6 @@
+name: Jeden worker čeká na odpověď, druhý narazí na rate limit
+max_parallel: 2
+tasks:
+  - {project: alpha, id: sim-a1, title: "Nejasné", priority: P1, nodes: {plan: [{unclear: "Který endpoint?"}, ok]}}
+  - {project: beta, id: sim-b1, title: "Limit", priority: P1, nodes: {implement: [{rate_limit: 60}, ok]}}
+delay: 0.8

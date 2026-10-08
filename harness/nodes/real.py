@@ -88,6 +88,12 @@ def _pr_body(s: dict) -> str:
             f"Tokens (whole run so far): {tokens}")
 
 
+def clarification_block(answers: list[str]) -> str:
+    if not answers:
+        return ""
+    return "\nThe owner answered your earlier questions:\n" + "\n".join(f"- {a}" for a in answers) + "\n"
+
+
 def real_nodes(cfg: Config) -> dict:
     def proj(s) -> Project:
         return cfg.projects[s["task"]["project"]]
@@ -108,7 +114,9 @@ def real_nodes(cfg: Config) -> dict:
 
     def plan(s):
         t = s["task"]
-        r = run_agent(render_prompt("plan.md", title=t["title"], description=t["description"]),
+        prompt = render_prompt("plan.md", title=t["title"], description=t["description"],
+                               clarifications=clarification_block(s.get("clarifications") or []))
+        r = run_agent(prompt,
                       cwd=s["worktree"], model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=30)
         out = _agent_out("plan", r)
         first = r.text.strip().splitlines()[0] if r.text.strip() else ""

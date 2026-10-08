@@ -28,5 +28,13 @@ def test_render_prompt_with_braces_in_values():
 
 
 def test_render_plan_prompt():
-    text = render_prompt("plan.md", title="Lazy loading", description="Popis")
+    text = render_prompt("plan.md", title="Lazy loading", description="Popis", clarifications="")
     assert "Lazy loading" in text and "UNCLEAR:" in text
+
+
+def test_plan_prompt_carries_owner_answers():
+    from harness.nodes.real import clarification_block
+    assert clarification_block([]) == ""
+    block = clarification_block(["Q?", "měř LCP"])
+    text = render_prompt("plan.md", title="T", description="D", clarifications=block)
+    assert "- Q?\n- měř LCP" in text and "owner" in text

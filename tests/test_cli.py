@@ -64,3 +64,36 @@ def test_scan_write_appends_proposals_once(tmp_path, capsys):
     assert (tmp_path / "BACKLOG.md").read_text(encoding="utf-8") == text
     assert "no new proposals" in capsys.readouterr().out
     assert main(["--home", str(tmp_path), "scan", "--project", "nope"]) == 2
+
+
+def test_simulate_asks_unclear_question_in_terminal(tmp_path, capsys, monkeypatch):
+    shutil.copytree(ROOT / "scenarios", tmp_path / "scenarios")
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda p: prompts.append(p) or "měř LCP")
+    assert main(["--home", str(tmp_path), "simulate", "clarify-answered", "--delay", "0"]) == 0
+    assert prompts and "Co přesně měřit?" in prompts[0]
+    assert "[x] P1 sim-01" in capsys.readouterr().out
+
+
+def test_serve_needs_telegram_env(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("HARNESS_TELEGRAM_TOKEN", raising=False)
+    assert main(["--home", str(tmp_path), "serve"]) == 2
+    assert "HARNESS_TELEGRAM_TOKEN" in capsys.readouterr().err
+
+
+def test_serve_starts_and_stops_cleanly(tmp_path, monkeypatch, capsys):
+    from harness import serve
+    (tmp_path / "projects.yaml").write_text('serve: {window: "22:00-07:00"}\nprojects: {}\n', encoding="utf-8")
+    monkeypatch.setenv("HARNESS_TELEGRAM_TOKEN", "T")
+    monkeypatch.setenv("HARNESS_TELEGRAM_CHAT_ID", "42")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    sent = []
+    monkeypatch.setattr("harness.telegram.Telegram.send", lambda self, text, buttons=None: sent.append((self.chat_id, text)) or 1)
+
+    def stop(ctx):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(serve, "loop", stop)
+    assert main(["--home", str(tmp_path), "serve"]) == 0
+    assert sent and sent[0][0] == 42
+    assert "22:00–07:00" in capsys.readouterr().out
+    assert (tmp_path / "serve_state.json").exists()

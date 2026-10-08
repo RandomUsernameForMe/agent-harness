@@ -98,3 +98,36 @@ def test_step_mode_shows_parallel_workers(client):
     wait_next(client, run_id, ["make_worktree", "make_worktree"])
     workers = {e["worker"] for e in client.get(f"/runs/{run_id}/events").json() if e["worker"]}
     assert workers == {"sim-a1", "sim-b1"}
+
+
+def test_answer_unclear_question(client):
+    run_id = client.post("/simulate", json={"scenario": "unclear-task", "delay": 0}).json()["run_id"]
+    wait_for(client, run_id, "waiting")
+    deadline = time.time() + 5
+    while (st := client.get(f"/runs/{run_id}/state").json())["running"]:
+        assert time.time() < deadline
+        time.sleep(0.05)
+    [q] = st["questions"]
+    assert q["question"] == "Co přesně měřit?"
+    assert client.post(f"/runs/{run_id}/answer", json={"id": "nope", "answer": "x"}).status_code == 404
+    assert client.post(f"/runs/{run_id}/answer", json={"id": q["id"], "answer": ""}).json() == {"ok": True}
+    wait_for(client, run_id, "run_end")
+    assert client.get(f"/backlog?sim={run_id}").json()[0]["status"] == "?"
+
+
+def test_second_answer_while_resuming_is_rejected(client, monkeypatch):
+    import threading
+    from harness.dashboard import app as app_module
+    run_id = client.post("/simulate", json={"scenario": "unclear-task", "delay": 0}).json()["run_id"]
+    wait_for(client, run_id, "waiting")
+    deadline = time.time() + 5
+    while (st := client.get(f"/runs/{run_id}/state").json())["running"]:
+        assert time.time() < deadline
+        time.sleep(0.05)
+    started = []
+    monkeypatch.setattr(app_module.threading, "Thread", lambda target, args, daemon: type(
+        "T", (), {"start": lambda self: started.append(1)})())
+    q = st["questions"][0]
+    assert client.post(f"/runs/{run_id}/answer", json={"id": q["id"], "answer": "a"}).status_code == 200
+    assert client.post(f"/runs/{run_id}/answer", json={"id": q["id"], "answer": "b"}).status_code == 409
+    assert started == [1]

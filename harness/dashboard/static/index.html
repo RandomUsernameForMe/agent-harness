@@ -37,6 +37,10 @@
   .meter > div { height:100%; background:var(--accent); }
   .muted { color:var(--muted); }
   .scroll { max-height:320px; overflow:auto; }
+  .k-waiting { color:var(--warn); }
+  .question { margin:10px 0 0; padding:10px; border:1px solid var(--warn); border-radius:8px; display:grid; gap:6px; }
+  .question form { display:flex; gap:6px; flex-wrap:wrap; }
+  .question input { flex:1 1 200px; font:inherit; padding:6px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--text); }
 </style>
 </head>
 <body>
@@ -53,6 +57,7 @@
     <div class="graphs"><div><h3>Běh (dávky přes Send)</h3><div id="graph" class="graph"></div></div>
       <div><h3>Worker (subgraf, jeden na úkol)</h3><div id="wgraph" class="graph"></div></div></div>
     <div id="workers" aria-live="polite"></div>
+    <div id="questions" aria-live="polite"></div>
     <h2 style="margin-top:12px">Detail uzlu</h2><pre id="detail">Klikni na uzel nebo event.</pre></section>
   <section><h2>Běhy</h2><div class="scroll"><table id="runs"></table></div>
     <h2 style="margin-top:12px">Události běhu</h2><div class="scroll"><table id="events"></table></div></section>
@@ -118,7 +123,7 @@ async function selectRun(runId) {
   const evs = await api(`/runs/${encodeURIComponent(runId)}/events`);
   $("events").innerHTML = "";
   evs.forEach((e) => { addEventRow(e); track(e); });
-  if (["run_end", "paused"].includes(evs.at(-1)?.kind)) active = {};
+  if (["run_end", "paused", "waiting"].includes(evs.at(-1)?.kind)) active = {};
   paintActive();
   await Promise.all([loadRuns(), loadBacklog(), refreshStepButton()]);
 }
@@ -157,7 +162,26 @@ async function refreshStepButton() {
     if (st.running) { $("status").textContent = "krok běží…"; setTimeout(refreshStepButton, 300); return; }
     $("status").textContent = st.next.length ? `čeká před: ${st.next.join(", ")}` : "";
     if (st.next.length) paint([...st.next, ...(st.next.includes("pick_tasks") ? [] : ["worker"])].map((n) => [n, "active"]));
-  } catch { $("step").disabled = true; }
+    renderQuestions(st.questions ?? []);
+  } catch { $("step").disabled = true; renderQuestions([]); }
+}
+
+function renderQuestions(qs) {
+  if (qs.length) $("step").disabled = true;  // answering resumes the run, a step would resume it unanswered
+  $("questions").innerHTML = qs.map((q) => `<div class="question"><div><strong>${esc(q.task)}</strong> ${esc(q.title)} se ptá:</div>
+    <div>${esc(q.question)}</div><form data-id="${esc(q.id)}"><input aria-label="Odpověď" placeholder="Odpověď…">
+    <button class="primary" type="submit">Odpovědět</button><button type="button" data-skip>Přeskočit</button></form></div>`).join("");
+  $("questions").querySelectorAll("form").forEach((f) => {
+    const send = async (answer) => {
+      f.querySelectorAll("button").forEach((b) => b.disabled = true);
+      await api(`/runs/${encodeURIComponent(selectedRun)}/answer`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: f.dataset.id, answer }) });
+      $("questions").innerHTML = "";
+      setTimeout(refreshStepButton, 300);
+    };
+    f.onsubmit = (ev) => { ev.preventDefault(); send(f.querySelector("input").value); };
+    f.querySelector("[data-skip]").onclick = () => send("");
+  });
 }
 
 $("start").onclick = async () => {
@@ -180,12 +204,13 @@ function listen() {
     if (e.run_id === selectedRun) {
       addEventRow(e);
       track(e);
-      if (["run_end", "paused"].includes(e.kind)) { active = {}; $("status").textContent = e.kind; }
+      if (["run_end", "paused", "waiting"].includes(e.kind)) { active = {}; $("status").textContent = e.kind; }
+      if (e.kind === "waiting") refreshStepButton();
       paintActive();
       if (e.kind === "end" && (e.node === "report" || e.node === "pick_tasks")) loadBacklog();
       if (e.kind === "end") refreshStepButton();
     }
-    if (["run_start", "run_end", "paused"].includes(e.kind)) loadRuns();
+    if (["run_start", "run_end", "paused", "waiting"].includes(e.kind)) loadRuns();
     if (e.usage) loadUsage();
   };
 }

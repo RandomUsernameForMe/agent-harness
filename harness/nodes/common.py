@@ -1,6 +1,7 @@
 import threading
 from dataclasses import asdict
 from pathlib import Path
+from typing import Callable
 
 from .. import backlog
 from ..priority import config_focus, pick_batch, rank
@@ -12,6 +13,11 @@ _backlog_lock = threading.Lock()
 
 def _read(path: Path) -> str:
     return path.read_bytes().decode("utf-8")
+
+
+def edit_backlog(path: Path, fn: Callable[[str], str]) -> None:
+    with _backlog_lock:
+        path.write_bytes(fn(_read(path)).encode("utf-8"))
 
 
 def make_pick_tasks(backlog_path: Path, cfg: Config):
@@ -42,8 +48,6 @@ def _note(state: dict) -> tuple[str, str]:
 def make_report(backlog_path: Path):
     def report(state: dict) -> dict:
         status, note = _note(state)
-        with _backlog_lock:
-            text = backlog.set_status(_read(backlog_path), state["task"]["id"], status, note)
-            backlog_path.write_bytes(text.encode("utf-8"))
+        edit_backlog(backlog_path, lambda text: backlog.set_status(text, state["task"]["id"], status, note))
         return {}
     return report

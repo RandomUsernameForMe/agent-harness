@@ -17,3 +17,11 @@
 ## [2026-10-01] - Design spec a plán fáze 2 (paralelní workers, priority napříč projekty, sken)
 ## [2026-10-01] - Fáze 2: worker subgraf + Send fan-out (max_parallel, 1 úkol/projekt/dávku), pauza na rate limit přes interrupt (sourozenci doběhnou), ranking P → fokus secondbrainu → weight, harness queue/scan, návrhy [~], sloupec worker v event logu, dashboard se dvěma diagramy
 ## [2026-10-01] - První reálný paralelní běh fáze 2: PR guth-pictures#8 a akano3#1 souběžně, verify zelené napoprvé
+## [2026-10-02] - Design spec fáze 3 (Telegram, dotazy přes interrupt, démon serve)
+## [2026-10-02] - Backlog: stav [-] (zamítnutý návrh), edit_backlog pod zámkem
+## [2026-10-02] - Uzel clarify: nejasný úkol se ptá přes interrupt (max 2 kola), stav běhu waiting, open_interrupts ignoruje zodpovězené interrupty hotových workerů
+## [2026-10-02] - Odpověď na dotaz nejasného úkolu z terminálu (run/simulate) a z dashboardu (POST /runs/{id}/answer)
+## [2026-10-02] - Telegram klient (stdlib urllib: getUpdates, sendMessage s tlačítky, editMessageText, answerCallbackQuery)
+## [2026-10-02] - harness serve: démon s Telegram ovládáním (okno pro automatický start, dotazy s reply/timeoutem, schvalování návrhů, digest po okně, resume po rate limitu a restartu, pád = pauza), denní sken, serve v projects.yaml
+## [2026-10-02] - README: harness serve (nastavení bota, Task Scheduler), screenshot dotazu v dashboardu
+## [2026-10-02] - Opravy z review fáze 3: démon drží rezervu kvóty mezi běhy, předávka výsledku běhu bez závodu, výjimka v tiku démona neshodí, sken 1× na okno, /answer v dashboardu atomicky, pozdní odpověď na už zodpovězený dotaz se ohlásí
