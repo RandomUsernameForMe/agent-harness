@@ -91,3 +91,49 @@ def test_backfill_from_event_usage_once(tmp_path):
     c = traces.costs(conn)
     assert [(t["task_id"], t["calls"], t["cost_usd"]) for t in c["tasks"]] == [("d2", 1, 1.0), ("d1", 2, 0.5)]
     assert [(o["run_id"], o["cost_usd"]) for o in c["overhead"]] == [("old", 0.5)]
+
+
+def test_sync_skips_final_states(tmp_path):
+    conn = db(tmp_path)
+    traces.sync_outcomes(conn, BACKLOG, lambda url: "merged")
+    asked = []
+    traces.sync_outcomes(conn, BACKLOG, lambda url: asked.append(url) or "open")
+    assert asked == [] and traces.outcomes(conn)["d1"][1] == "merged"
+
+
+def test_pr_state_survives_missing_or_hanging_gh(monkeypatch):
+    import subprocess
+
+    def missing(*a, **kw):
+        raise FileNotFoundError("gh")
+    monkeypatch.setattr(subprocess, "run", missing)
+    assert traces.pr_state("https://gh/pr/1") is None
+
+    def hang(*a, **kw):
+        assert kw.get("timeout")
+        raise subprocess.TimeoutExpired("gh", kw["timeout"])
+    monkeypatch.setattr(subprocess, "run", hang)
+    assert traces.pr_state("https://gh/pr/1") is None
+
+
+def test_backfill_keeps_pre_ledger_calls_of_resumed_run(tmp_path):
+    conn = db(tmp_path)
+    u = [{"node": "plan", "model": "opus", "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.3}]
+    events.log(conn, "r", "end", node="plan", worker="d1", usage=u)  # before phase 4
+    traces.record(conn, call("d1", "implement", 0.5, run_id="r", started=9e9), [])  # resumed after
+    traces.backfill(conn)
+    traces.backfill(conn)
+    assert [(t["calls"], t["cost_usd"]) for t in traces.costs(conn)["tasks"]] == [(2, 0.8)]
+
+
+def test_attempts_ignore_rate_limited_calls(tmp_path):
+    conn = db(tmp_path)
+    traces.record(conn, call("d1", "implement", 0.1, status="rate_limited"), [])
+    traces.record(conn, call("d1", "implement", 0.4), [])
+    assert traces.costs(conn)["tasks"][0]["attempts"] == 1
+
+
+def test_indexes_exist(tmp_path):
+    conn = db(tmp_path)
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"agent_steps_call", "agent_calls_run"} <= names

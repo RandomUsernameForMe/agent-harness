@@ -15,7 +15,7 @@ def result(is_error=False, **kw):
 def stream(*msgs):
     async def query(prompt, options):
         for m in msgs:
-            if isinstance(m, Exception):
+            if isinstance(m, BaseException):
                 raise m
             yield m
     return query
@@ -112,3 +112,20 @@ def test_graph_passes_config_into_trace_context(tmp_path):
     app.invoke(initial_state("go-7", c, True, discover=True), {"configurable": {"thread_id": "go-7"}})
     assert sorted(seen, key=lambda t: t.worker) == [trace.Trace("go-7", "discover", "demo"),
                                                     trace.Trace("go-7", "discover", "web")]
+
+
+def test_sink_failure_never_changes_the_agent_outcome(monkeypatch, capsys):
+    def broken(call, steps):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(trace, "_sink", broken)
+    assert run(monkeypatch, result()).text == "hotovo"
+    limit = RateLimitEvent(RateLimitInfo("rejected", resets_at=99), "u", "s")
+    with pytest.raises(RateLimited):
+        run(monkeypatch, limit)
+    assert "database is locked" in capsys.readouterr().err
+
+
+def test_interrupt_is_not_recorded_as_ok(monkeypatch, recorded):
+    with pytest.raises(KeyboardInterrupt):
+        run(monkeypatch, TOOL_MSGS[0], KeyboardInterrupt())
+    assert recorded[0][0]["status"] == "error"

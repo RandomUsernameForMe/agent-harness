@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import tempfile
 import time
 from collections.abc import Mapping
@@ -150,15 +151,25 @@ def _call(t: trace.Trace, model: str, acc: _Acc, status: str, error: str | None)
 
 async def _collect(prompt: str, options: ClaudeAgentOptions, model: str, t: trace.Trace) -> WorkerResult:
     """Every call is recorded — also failed and rate-limited ones, with the steps made so far."""
-    acc, status, error = _Acc(time.time()), "ok", None
+    acc, status, error = _Acc(time.time()), "error", "interrupted"  # Ctrl+C / cancel skip the excepts below
     try:
         await _consume(query(prompt=prompt, options=options), acc)
-        return _finish(acc, model)
+        out = _finish(acc, model)
+        status, error = "ok", None
+        return out
     except RateLimited:
-        status = "rate_limited"
+        status, error = "rate_limited", None
         raise
     except Exception as e:
         status, error = "error", f"{type(e).__name__}: {e}"
         raise
     finally:
-        trace.emit(_call(t, model, acc, status, error), acc.steps)
+        _record(_call(t, model, acc, status, error), acc.steps)
+
+
+def _record(call: dict, steps: list[dict]) -> None:
+    # bookkeeping must never turn a finished task into a failure or hide a rate-limit pause
+    try:
+        trace.emit(call, steps)
+    except Exception as e:
+        print(f"trace not recorded ({call.get('node')} {call.get('worker')}): {type(e).__name__}: {e}", file=sys.stderr)

@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS agent_steps (
   call_id INTEGER NOT NULL, seq INTEGER NOT NULL, kind TEXT, tool TEXT, summary TEXT, is_error INTEGER);
 CREATE TABLE IF NOT EXISTS task_outcomes (
   task_id TEXT PRIMARY KEY, project TEXT, pr_url TEXT, state TEXT, checked REAL);
+CREATE INDEX IF NOT EXISTS agent_steps_call ON agent_steps(call_id);
+CREATE INDEX IF NOT EXISTS agent_calls_run ON agent_calls(run_id);
 """
 CALL_FIELDS = ("run_id", "worker", "node", "model", "started", "duration_ms", "num_turns", "input_tokens",
                "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_usd", "status", "error", "session_id")
@@ -25,6 +27,8 @@ TOKENS = "input_tokens + output_tokens + cache_read_tokens + cache_write_tokens"
 OVERHEAD_NODES = ("discover", "prioritize")
 URL_RE = re.compile(r" → (https?://\S+)\s*$")
 LOCAL_STATES = {"!": "failed", "?": "unclear"}
+FINAL_STATES = ("merged", "closed")
+GH_TIMEOUT = 20
 
 
 def ensure(conn) -> None:
@@ -62,7 +66,7 @@ def costs(conn) -> dict:
     # every task with calls or a known outcome (PRs from before the ledger existed have no calls)
     tasks = _rows(conn, f"""
         WITH agg AS (
-          SELECT worker, SUM(node = 'implement') AS attempts, COUNT(*) AS calls,
+          SELECT worker, SUM(node = 'implement' AND status != 'rate_limited') AS attempts, COUNT(*) AS calls,
                  ROUND(SUM(COALESCE(cost_usd, 0)), 6) AS cost_usd, SUM({TOKENS}) AS tokens, MIN(id) AS first
           FROM agent_calls WHERE node NOT IN ({placeholders}) AND worker IS NOT NULL GROUP BY worker),
         ids AS (SELECT worker AS task_id FROM agg UNION SELECT task_id FROM task_outcomes)
@@ -80,9 +84,11 @@ def costs(conn) -> dict:
 def backfill(conn) -> int:
     """Calls of real runs from before the ledger, rebuilt from event-log usage (no steps, no cache tokens)."""
     with _lock:
-        rows = conn.execute("SELECT run_id, ts, node, worker, usage FROM events WHERE usage IS NOT NULL "
-                            "AND simulated = 0 AND run_id NOT IN "
-                            "(SELECT DISTINCT run_id FROM agent_calls WHERE run_id IS NOT NULL) ORDER BY id").fetchall()
+        # per event, not per run: a run resumed after phase 4 keeps its earlier, unrecorded calls; an event
+        # is covered once a call of its run started no later than it (recorded calls and backfilled ones alike)
+        rows = conn.execute("SELECT run_id, ts, node, worker, usage FROM events e WHERE usage IS NOT NULL "
+                            "AND simulated = 0 AND NOT EXISTS (SELECT 1 FROM agent_calls a "
+                            "WHERE a.run_id = e.run_id AND a.started <= e.ts) ORDER BY id").fetchall()
     n = 0
     for r in rows:
         for u in json.loads(r["usage"]):
@@ -105,8 +111,12 @@ def pr_urls(text: str) -> dict[str, str]:
 
 def pr_state(url: str) -> str | None:
     """open / merged / closed from gh; None when gh fails (state is then left as it was)."""
-    out = subprocess.run(["gh", "pr", "view", url, "--json", "state", "-q", ".state"],
-                         capture_output=True, text=True, encoding="utf-8")
+    try:
+        out = subprocess.run(["gh", "pr", "view", url, "--json", "state", "-q", ".state"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired) as e:  # gh missing or hanging must not block a run start
+        print(f"gh pr view {url}: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
     if out.returncode != 0:
         print(f"gh pr view {url}: {out.stderr.strip()}", file=sys.stderr)
         return None
@@ -122,10 +132,12 @@ def _upsert(conn, task_id: str, project: str, url: str | None, state: str) -> No
 
 
 def sync_outcomes(conn, backlog_text: str, state_of: Callable[[str], str | None] = pr_state) -> None:
-    urls = pr_urls(backlog_text)
+    urls, known = pr_urls(backlog_text), outcomes(conn)
     for t in backlog.parse(backlog_text):
         if t.status in LOCAL_STATES:
             _upsert(conn, t.id, t.project, None, LOCAL_STATES[t.status])
+        elif t.id in urls and known.get(t.id, (None, None))[1] in FINAL_STATES:
+            continue  # merged / closed never change; asking gh again only slows every run start
         elif t.id in urls and (state := state_of(urls[t.id])):
             _upsert(conn, t.id, t.project, urls[t.id], state)
 
