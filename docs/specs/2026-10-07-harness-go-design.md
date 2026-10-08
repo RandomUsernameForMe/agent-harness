@@ -1,6 +1,6 @@
 # Harness — `harness go`: design
 
-Datum: 2026-10-07 · Stav: implementováno. Kritéria 1–2 ověřena; reálný `harness go` (go-20261008-005514): 3 projekty, 14 návrhů, 0 chyb, plán 3 bezpečnostních bugů — vlastník zvolil `q` (vše `[~]`), PR zatím nevznikl.
+Datum: 2026-10-07 · Stav: implementováno. Kritéria 1–2 ověřena; reálný `harness go` (go-20261008-005514): 3 projekty, 14 návrhů, 0 chyb, plán 3 bezpečnostních bugů — vlastník zvolil `q` (vše `[~]`). Druhé kolo (go-20261008-010216): 13 návrhů, plán 3, vlastník vyškrtl 1 → draft PR akano3#2 a guth-pictures#14 (verify zelené; guth-pictures po pauze na rate limit + resume). Kritérium 3 splněno.
 
 ## 1. Účel
 
