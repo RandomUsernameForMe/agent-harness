@@ -35,3 +35,4 @@
 ## [2026-10-08] - Opravy z review harness go: kvóta z discover/prioritize hlídá start workerů, robustní hledání JSON v odpovědi modelu, nehashovatelné id v pořadí neshodí běh
 ## [2026-10-08] - První reálný harness go: 14 návrhů ze 3 projektů (BACKLOG [~]), plán zatím neschválen
 ## [2026-10-08] - Druhý reálný harness go: draft PR akano3#2 a guth-pictures#14 (pauza na rate limit + resume), 10 návrhů [~]
+## [2026-10-08] - Design spec fáze 4 (observabilita: trace volání agentů, cena za PR, výsledky PR)
