@@ -7,6 +7,7 @@ LangGraph orchestrátor: úkol z `BACKLOG.md` → plán (Opus) → implementace 
     .venv/Scripts/harness dashboard          # http://127.0.0.1:8765
     .venv/Scripts/harness go                 # Opus navrhne a seřadí úkoly, schválíš plán, workery udělají draft PR
     .venv/Scripts/harness run [--resume RUN_ID]
+    .venv/Scripts/harness stats              # cena za úkol (tokeny vč. cache, $), stav PR z gh, režie discover/prioritize
     .venv/Scripts/harness prune              # smaže worktree hotových úkolů
     .venv/Scripts/harness queue              # seřazená fronta (P → fokus ze secondbrainu → weight)
     .venv/Scripts/harness scan [--write]     # TODO/FIXME z origin/<base> → návrhy [~] v BACKLOGu
@@ -20,6 +21,16 @@ Fáze 3: když plánovač označí úkol za nejasný, worker se zeptá (uzel `cl
 Jedno kolo bez ručního psaní úkolů. Pro každý projekt souběžně běží `discover`: Opus si v čerstvém read-only worktree z `origin/<base>` projde kód, dokumentaci projektu a poznámky ze secondbrainu (Thoughts/, Inbox/) a navrhne nejvýš 5 úkolů velikosti jednoho PR. `prioritize` pak z návrhů a otevřených úkolů v BACKLOGu sestaví plán o délce `max_tasks_per_run`. Když volání selže, plán sestaví klasické pořadí podle priority.
 
 Plán se ukáže v terminálu. Enter schválí všechno, `2,5` vyškrtne úkoly 2 a 5, `q` běh ukončí. Schválené úkoly se zapíšou jako `[ ]` a workery z nich udělají draft PR. Vyškrtnuté se zapíšou jako `[-]` a už se znovu nenavrhnou. Nevybrané a po `q` se zapíšou jako `[~]` na později. Po rate limitu se pokračuje přes `harness run --resume go-…` a průzkum projektů, které už doběhly, se znovu nespouští. Bez modelu jde vyzkoušet přes `harness simulate go-happy`.
+
+## Observabilita (fáze 4)
+
+Každé volání agenta se zapíše do `harness.db`, i když selže nebo narazí na rate limit:
+- tabulka `agent_calls`: uzel, úkol, model, počet tahů, tokeny včetně cache, odhad ceny, stav a `session_id`,
+- tabulka `agent_steps`: kroky volání, tedy nástroje a výsledky, zkrácené na 300 znaků, a text agenta na 1 000 znaků.
+
+Plný transkript volání najdeš podle `session_id` v `~/.claude/projects/`. Ke kterému běhu, uzlu a úkolu volání patří, se zjistí z `config["metadata"]` LangGraphu, takže stav grafu kroky neobsahuje.
+
+`harness stats`, stejně jako začátek každého `run`/`go`, si přes `gh` zjistí stav PR úkolů a uloží ho do tabulky `task_outcomes`. Dashboard ukazuje volání agentů vybraného běhu (po kliknutí kroky) a cenu za úkol. Ceny jsou u subscription jen odhad SDK.
 
 ## Autonomní běh: `harness serve`
 
