@@ -41,3 +41,4 @@
 ## [2026-10-08] - Fáze 4: dashboard (volání agentů běhu → kroky, cena za úkol s odkazem na PR, cache tokeny ve spotřebě); oprava: end události discover nesly prázdný worker
 ## [2026-10-08] - README: observabilita, harness stats
 ## [2026-10-08] - Opravy z review fáze 4: chyba zápisu trace nepřepíše výsledek ani pauzu na rate limit, gh s timeoutem a bez dotazů na merged/closed PR, backfill po eventech (obnovené běhy), indexy, Ctrl+C se nezapíše jako ok, pokusy bez rate-limited volání
+## [2026-10-08] - Dashboard: výraznější hierarchie nadpisů (h1 20 px, h2 15 px)
