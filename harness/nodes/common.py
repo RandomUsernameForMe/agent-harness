@@ -5,7 +5,7 @@ from typing import Callable
 
 from langgraph.types import interrupt
 
-from .. import backlog
+from .. import backlog, lessons
 from ..backlog import Task
 from ..discover import apply_approval, candidates, fallback_plan, json_array, parse_proposals, parse_ranking
 from ..graph import RateLimited
@@ -122,3 +122,51 @@ def make_approve(backlog_path: Path):
         edit_backlog(backlog_path, lambda text: apply_approval(text, proposals, plan, kept))
         return {"planned": kept or []}
     return approve
+
+
+def _add_harness_tasks(text: str, tasks: list[tuple[str, list[str]]]) -> str:
+    known = {t.id for t in backlog.parse(text)}
+    for pid, lines in tasks:
+        if pid not in known:
+            text = backlog.add_tasks(text, lessons.HARNESS, lines)
+            known.add(pid)
+    return text
+
+
+def make_reflect(backlog_path: Path, reflect_fn: Callable[[list[dict], list[dict]], tuple[str, dict]],
+                 pr_info: Callable[[str], tuple[str, str] | None]):
+    """End of every run: new owner feedback → proposed lessons (the owner approves them) and prompt changes
+    as [~] proposals for the harness. Feedback counts as consumed only after a successful call, so a failed
+    reflection retries next run. No new feedback → no model call."""
+    def reflect(state: dict) -> dict:
+        store = lessons.current_store()
+        if store is None:
+            return {}
+        with _backlog_lock:
+            text = _read(backlog_path)
+        seen = {i.key for i in store.search(lessons.SEEN, limit=100_000)}
+        items, quiet = lessons.gather_feedback(text, seen, pr_info)
+        mark = {"run": state.get("run_id")}
+        for key in quiet:
+            store.put(lessons.SEEN, key, mark)
+        if not items:
+            return {}
+        projects = {i["project"] for i in items} | {lessons.ALL}
+        known = [{"project": x["project"], "text": x["text"], "status": x["status"]}
+                 for p in sorted(projects) for x in lessons.lessons(store, p)]
+        try:
+            answer, agent = reflect_fn(items, known)
+        except RateLimited:
+            raise
+        except Exception as e:
+            return {"go_errors": [_error("reflect", e)]}
+        found = lessons.parse_reflection(answer, items)
+        for f in found:
+            if f["scope"] == "project":
+                lessons.propose(store, f["project"], f["text"], f["source"])
+        if prompts := [lessons.harness_task(f) for f in found if f["scope"] == "prompt"]:
+            edit_backlog(backlog_path, lambda t: _add_harness_tasks(t, prompts))
+        for i in items:
+            store.put(lessons.SEEN, i["key"], mark)
+        return _spent(agent)
+    return reflect

@@ -11,6 +11,7 @@ LangGraph orchestrátor: úkol z `BACKLOG.md` → plán (Opus) → implementace 
     .venv/Scripts/harness prune              # smaže worktree hotových úkolů
     .venv/Scripts/harness queue              # seřazená fronta (P → fokus ze secondbrainu → weight)
     .venv/Scripts/harness scan [--write]     # TODO/FIXME z origin/<base> → návrhy [~] v BACKLOGu
+    .venv/Scripts/harness lessons [--project X] [--retire PROJECT/ID]   # lekce z reflexe (fáze 5)
 
 Fáze 2: `run` zpracovává až `max_parallel` úkolů z různých projektů najednou (LangGraph `Send` → worker subgraf). Návrh `[~]` se nespustí, dokud ho ručně nezměníš na `[ ]`. Běhy z fáze 1 nejdou resumovat novým grafem.
 
@@ -31,6 +32,22 @@ Každé volání agenta se zapíše do `harness.db`, i když selže nebo narazí
 Plný transkript volání najdeš podle `session_id` v `~/.claude/projects/`. Ke kterému běhu, uzlu a úkolu volání patří, se zjistí z `config["metadata"]` LangGraphu, takže stav grafu kroky neobsahuje.
 
 `harness stats`, stejně jako začátek každého `run`/`go`, si přes `gh` zjistí stav PR úkolů a uloží ho do tabulky `task_outcomes`. Dashboard ukazuje volání agentů vybraného běhu (po kliknutí kroky) a cenu za úkol. Ceny jsou u subscription jen odhad SDK.
+
+## Self-improvement (fáze 5)
+
+Na konci každého běhu proběhne uzel `reflect`. Model se volá, jen když od minulé reflexe přibyla zpětná vazba:
+- zamítnuté návrhy `[-]` včetně důvodu,
+- selhané `[!]` a nejasné `[?]` úkoly,
+- PR zavřené bez merge,
+- review komentáře lidí (ne botů).
+
+Opus z toho navrhne krátké lekce pro jednotlivé projekty. Každou schvaluješ ✅/❌ v dashboardu nebo Telegramu. Do promptů `discover`, `plan` a `implement` se dostanou jen schválené lekce, nejvýš 15 na projekt. Lekce i zpracovaná zpětná vazba se ukládají do LangGraph `Store` v `harness.db`. Spravuje je `harness lessons`.
+
+Důvod zamítnutí je nepovinný. V dashboardu se k němu dostaneš kliknutím na ❌, v Telegramu jako reply na zprávu zamítnutého návrhu.
+
+Když chyba leží v promptu harnessu (worker by selhal v jakémkoli projektu), reflexe zapíše návrh `[~]` do sekce `## harness`. Harness je v `projects.yaml` jako projekt s `discover: false` (go ani sken ho neprochází) a `allowed: ["harness/prompts/**", "CHANGELOG.md"]`. Guard tak zamítne jakoukoli změnu Python kódu. Výstup je draft PR a merge děláš ty.
+
+`prioritize` navíc dostane, jak jsi dosud naložil s úkoly každého projektu (hotovo, zamítnuto, selhalo, čeká).
 
 ## Autonomní běh: `harness serve`
 

@@ -14,7 +14,7 @@ Every task must:
 
 Owner's notes:
 {notes}
-
+{lessons}
 Explore read-only. Then answer with ONLY a JSON array and no other text:
 [{{"title": "...", "description": "...", "kind": "test|bug|debt|feature|docs", "why": "...", "done": "..."}}]
 Write title, description, why and done in Czech. title: at most 80 characters. description: what to change and where (files). done: a concrete check that proves the task is finished. Fewer strong tasks beat five weak ones; [] is a valid answer.

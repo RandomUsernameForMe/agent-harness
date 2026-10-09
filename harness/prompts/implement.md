@@ -7,7 +7,7 @@ Plan:
 {plan}
 
 {failure}
-
+{lessons}
 Rules:
 - Make the smallest change that satisfies the task. Follow the existing code style.
 - Run the project's tests yourself before finishing.

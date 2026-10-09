@@ -6,14 +6,17 @@ import tempfile
 import threading
 import time
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.store.sqlite import SqliteStore
 
-from . import backlog, events, serve, trace, traces
+from . import backlog, events, lessons, serve, trace, traces
 from .graph import build_graph, initial_state
-from .nodes.common import edit_backlog, make_approve, make_discover, make_pick_tasks, make_prioritize, make_report
-from .nodes.real import git, real_explore, real_nodes, real_rank, worktree_path
+from .nodes.common import (edit_backlog, make_approve, make_discover, make_pick_tasks, make_prioritize, make_reflect,
+                           make_report)
+from .nodes.real import git, real_explore, real_nodes, real_rank, real_reflect, worktree_path
 from .projects import load_config
 from .priority import config_focus, rank
 from .discover import format_plan, parse_approval
@@ -29,6 +32,13 @@ def open_db(home: Path):
     conn = events.connect(db)
     saver = SqliteSaver(sqlite3.connect(str(db), check_same_thread=False))
     return conn, saver
+
+
+def open_store(home: Path) -> SqliteStore:
+    """Lessons and consumed feedback (phase 5). Autocommit connection: the store runs its own transactions."""
+    store = SqliteStore(sqlite3.connect(str(home / "harness.db"), check_same_thread=False, isolation_level=None))
+    store.setup()
+    return store
 
 
 def _scenario_path(home: Path, name: str) -> Path | None:
@@ -88,12 +98,15 @@ def cmd_simulate(args) -> int:
 def _real_app(home: Path, cfg):
     backlog_path = home / "BACKLOG.md"
     conn, saver = open_db(home)
+    store = open_store(home)
     trace.set_sink(lambda call, steps: traces.record(conn, call, steps))
+    rank_fn = partial(real_rank, history_of=lambda: lessons.owner_history(backlog.parse(_read_backlog(home))))
     nodes = real_nodes(cfg) | {"pick_tasks": make_pick_tasks(backlog_path, cfg), "report": make_report(backlog_path),
                                "discover": make_discover(backlog_path, real_explore(cfg)),
-                               "prioritize": make_prioritize(backlog_path, cfg, real_rank),
-                               "approve": make_approve(backlog_path)}
-    return build_graph(nodes, saver), backlog_path, conn
+                               "prioritize": make_prioritize(backlog_path, cfg, rank_fn),
+                               "approve": make_approve(backlog_path),
+                               "reflect": make_reflect(backlog_path, real_reflect, traces.pr_feedback)}
+    return build_graph(nodes, saver, store=store), backlog_path, conn, store
 
 
 def _run(args, discover: bool) -> int:
@@ -102,7 +115,7 @@ def _run(args, discover: bool) -> int:
     if err := check_billing(cfg.billing, os.environ):
         print(err, file=sys.stderr)
         return 2
-    app, backlog_path, conn = _real_app(args.home, cfg)
+    app, backlog_path, conn, _ = _real_app(args.home, cfg)
     _sync_outcomes(conn, args.home)
     resume = getattr(args, "resume", None)
     run_id = resume or f"{'go' if discover else 'run'}-{time.strftime('%Y%m%d-%H%M%S')}"
@@ -181,14 +194,15 @@ def cmd_serve(args) -> int:
     if err := check_billing(cfg.billing, os.environ):
         print(err, file=sys.stderr)
         return 2
-    app, backlog_path, conn = _real_app(args.home, cfg)
+    app, backlog_path, conn, store = _real_app(args.home, cfg)
     state_path = args.home / "serve_state.json"
     bot = Telegram(token, int(chat)) if token and chat else NoTelegram()
     ctx = serve.Ctx(cfg=cfg, bot=bot, app=app, backlog_path=backlog_path, conn=conn,
                     new_inputs=lambda rid: initial_state(rid, cfg, simulated=False),
                     state=serve.load_state(state_path, datetime.now()),
                     spawn=lambda job: threading.Thread(target=job, daemon=True).start(),
-                    now=datetime.now, scan=lambda: _scan_into(cfg, backlog_path), state_path=state_path)
+                    now=datetime.now, scan=lambda: _scan_into(cfg, backlog_path), state_path=state_path,
+                    store=store)
     web = create_app(args.home, control=ctx)
     threading.Thread(target=uvicorn.run, args=(web,), kwargs={"host": "127.0.0.1", "port": args.port},
                      daemon=True).start()
@@ -199,6 +213,20 @@ def cmd_serve(args) -> int:
         serve.loop(ctx)
     except KeyboardInterrupt:  # a running run continues from its checkpoint on the next start
         serve.save_state(state_path, ctx.state)
+    return 0
+
+
+def cmd_lessons(args) -> int:
+    store = open_store(args.home)
+    if args.retire:
+        project, _, key = args.retire.partition("/")
+        print(lessons.decide(store, project, key, "retired"))
+        return 0
+    rows = lessons.lessons(store, args.project)
+    for x in rows:
+        print(f"{x['project']}/{x['id']} [{x['status']}] {x['text']}")
+    if not rows:
+        print("no lessons")
     return 0
 
 
@@ -235,7 +263,7 @@ def cmd_queue(args) -> int:
 def cmd_scan(args) -> int:
     cfg = load_config(args.home / "projects.yaml")
     text = _read_backlog(args.home)
-    names = [args.project] if args.project else list(cfg.projects)
+    names = [args.project] if args.project else [n for n, p in cfg.projects.items() if p.discover]
     if unknown := [n for n in names if n not in cfg.projects]:
         print(f"unknown project: {', '.join(unknown)}", file=sys.stderr)
         return 2
@@ -279,6 +307,9 @@ def main(argv: list[str] | None = None) -> int:
     sv = sub.add_parser("serve")
     sv.add_argument("--port", type=int, default=8765)
     sub.add_parser("prune")
+    ls = sub.add_parser("lessons")
+    ls.add_argument("--project")
+    ls.add_argument("--retire", metavar="PROJECT/ID")
     sub.add_parser("queue")
     sc = sub.add_parser("scan")
     sc.add_argument("--write", action="store_true")
@@ -286,7 +317,8 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--limit", type=int, default=5)
     args = p.parse_args(argv)
     handlers = {"simulate": cmd_simulate, "run": cmd_run, "dashboard": cmd_dashboard, "prune": cmd_prune,
-                "queue": cmd_queue, "scan": cmd_scan, "serve": cmd_serve, "go": cmd_go, "stats": cmd_stats}
+                "queue": cmd_queue, "scan": cmd_scan, "serve": cmd_serve, "go": cmd_go, "stats": cmd_stats,
+                "lessons": cmd_lessons}
     return handlers[args.cmd](args)
 
 

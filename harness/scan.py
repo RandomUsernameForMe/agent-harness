@@ -63,7 +63,7 @@ def proposal_lines(p: Proposal) -> list[str]:
 def scan_all(cfg: Config, text: str, names: list[str] | None = None, limit: int = 5) -> tuple[str, list[Proposal]]:
     """New proposals of the given projects and the backlog text with them appended as [~]."""
     found: list[Proposal] = []
-    for name in names or list(cfg.projects):
+    for name in names or [n for n, p in cfg.projects.items() if p.discover]:
         try:
             props = new_proposals(scan_project(cfg.projects[name], limit), backlog.parse(text))
         except Exception as e:  # one unreachable repo must not hide the others

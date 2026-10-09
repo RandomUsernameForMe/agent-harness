@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+from .. import lessons
 from ..backlog import Task
 from ..guard import check_diff, new_failures
 from ..priority import captures_about
@@ -92,6 +93,10 @@ def _pr_body(s: dict) -> str:
             f"Tokens (whole run so far): {tokens}")
 
 
+def lessons_block(project: str) -> str:
+    return lessons.block(lessons.active_texts(lessons.current_store(), project))
+
+
 def clarification_block(answers: list[str]) -> str:
     if not answers:
         return ""
@@ -118,18 +123,27 @@ def real_explore(cfg: Config) -> Callable[[str, list[Task]], tuple[str, dict]]:
         prompt = render_prompt("discover.md", project=name, max_diff_lines=p.max_diff_lines,
                                verify="\n".join(f"  {c}" for c in p.verify),
                                known="\n".join(f"  [{t.status}] {t.title}" for t in known) or "  (none)",
-                               notes=notes or "(none)")
+                               notes=notes or "(none)", lessons=lessons_block(name))
         r = run_agent(prompt, cwd=wt, model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=40)
         return r.text, _agent_out("discover", r)
     return explore
 
 
-def real_rank(cands: list[dict], n: int, focus: dict, weights: dict) -> tuple[str, dict]:
+def real_rank(cands: list[dict], n: int, focus: dict, weights: dict,
+              history_of: Callable[[], dict] | None = None) -> tuple[str, dict]:
     rows = "\n".join(json.dumps({k: c[k] for k in RANK_FIELDS}, ensure_ascii=False) for c in cands)
-    prompt = render_prompt("prioritize.md", n=n, candidates=rows,
+    history = json.dumps(history_of() if history_of else {}, ensure_ascii=False)
+    prompt = render_prompt("prioritize.md", n=n, candidates=rows, history=history,
                            focus=json.dumps(focus, ensure_ascii=False), weights=json.dumps(weights, ensure_ascii=False))
     r = run_agent(prompt, cwd=tempfile.gettempdir(), model="opus", tools=[], permission_mode="dontAsk", max_turns=1)
     return r.text, _agent_out("prioritize", r)
+
+
+def real_reflect(items: list[dict], known: list[dict]) -> tuple[str, dict]:
+    prompt = render_prompt("reflect.md", feedback="\n".join(json.dumps(i, ensure_ascii=False) for i in items),
+                           known="\n".join(json.dumps(k, ensure_ascii=False) for k in known) or "(none)")
+    r = run_agent(prompt, cwd=tempfile.gettempdir(), model="opus", tools=[], permission_mode="dontAsk", max_turns=1)
+    return r.text, _agent_out("reflect", r)
 
 
 def real_nodes(cfg: Config) -> dict:
@@ -153,7 +167,8 @@ def real_nodes(cfg: Config) -> dict:
     def plan(s):
         t = s["task"]
         prompt = render_prompt("plan.md", title=t["title"], description=t["description"],
-                               clarifications=clarification_block(s.get("clarifications") or []))
+                               clarifications=clarification_block(s.get("clarifications") or []),
+                               lessons=lessons_block(t["project"]))
         r = run_agent(prompt,
                       cwd=s["worktree"], model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=30)
         out = _agent_out("plan", r)
@@ -175,7 +190,7 @@ def real_nodes(cfg: Config) -> dict:
         failure = (f"The previous attempt failed verification. Fix this:\n```\n{s['last_failure']}\n```"
                    if s.get("last_failure") else "")
         prompt = render_prompt("implement.md", title=t["title"], description=t["description"],
-                               plan=s.get("plan", ""), failure=failure)
+                               plan=s.get("plan", ""), failure=failure, lessons=lessons_block(t["project"]))
         r = run_agent(prompt, cwd=s["worktree"], model="sonnet", tools=WRITE_TOOLS, disallowed=NO_PUBLISH, max_turns=80)
         return _agent_out("implement", r)
 

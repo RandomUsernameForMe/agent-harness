@@ -10,7 +10,7 @@ def test_fan_out_sends_one_worker_per_batch_item():
                                                                   {"task": {"id": "b"}, "max_attempts": 3}]})
     assert sends == [Send("worker", {"run_id": "r", "simulated": True, "usage": [], "task": {"id": "a"}, "max_attempts": 2}),
                      Send("worker", {"run_id": "r", "simulated": True, "usage": [], "task": {"id": "b"}, "max_attempts": 3})]
-    assert fan_out({"run_id": "r", "batch": []}) == END
+    assert fan_out({"run_id": "r", "batch": []}) == "reflect"
 
 
 def test_after_verify():
@@ -67,4 +67,4 @@ def test_start_routes_go_and_run():
 def test_after_approve():
     from harness.graph import after_approve
     assert after_approve({"planned": ["x"]}) == "pick_tasks"
-    assert after_approve({"planned": []}) == END
+    assert after_approve({"planned": []}) == "reflect"

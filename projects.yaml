@@ -36,3 +36,12 @@ projects:
     base: main
     setup: ["npm ci"]
     verify: ["node --test editor/*.test.ts", "npx tsc --noEmit"]
+  # fáze 5: harness mění jen vlastní prompty (úkoly jen z reflexe nebo ručně); guard drží Python kód mimo dosah
+  harness:
+    path: .
+    base: main
+    discover: false
+    # venv mimo worktree, sdílený úkoly harnessu
+    setup: ['python -m venv ..\_hvenv && ..\_hvenv\Scripts\python -m pip install -q -e ".[dev]"']
+    verify: ['..\_hvenv\Scripts\python -m pytest -q']
+    allowed: ["harness/prompts/**", "CHANGELOG.md"]

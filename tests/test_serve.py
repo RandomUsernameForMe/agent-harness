@@ -198,9 +198,14 @@ def test_proposals_sent_once_then_approved_and_rejected(tmp_path):
     approve, reject = props[0]["buttons"][0][0][1], props[1]["buttons"][0][1][1]
     env.tick(env.press(approve, props[0]), env.press(reject, props[1]))
     assert env.statuses()["p-1"] == " " and env.statuses()["p-2"] == "-"
-    assert [e[1].split("\n\n→ ", 1)[1] for e in env.bot.edits] == ["schváleno → fronta", "zamítnuto"]
+    assert [e[1].split("\n\n→ ", 1)[1] for e in env.bot.edits] == [
+        "schváleno → fronta", "zamítnuto (důvod můžeš poslat reply na tuto zprávu)"]
     env.tick(env.press(approve, props[0]))
     assert env.bot.acks[-1][1] == "už vyřízeno"
+    env.tick(env.msg("duplicitní s gp-02", reply_to=props[1]["id"]))
+    assert "důvod uložen" in env.bot.texts()[-1]
+    [p2] = [t for t in parse(env.sim.backlog_path.read_bytes().decode("utf-8")) if t.id == "p-2"]
+    assert p2.status == "-" and p2.note == "zamítnuto: duplicitní s gp-02"
 
 
 def test_proposals_command_resends(tmp_path):
@@ -434,3 +439,31 @@ def test_dashboard_pause_resume(tmp_path):
     assert serve.snapshot(env.ctx)["paused"] is True
     serve.act(env.ctx, "resume", {})
     assert serve.snapshot(env.ctx)["paused"] is False
+
+
+def test_lessons_sent_and_decided_from_telegram_and_dashboard(tmp_path):
+    from langgraph.store.memory import InMemoryStore
+    from harness import lessons
+    env = Env(tmp_path, "happy-path", window=None)
+    env.ctx.store = store = InMemoryStore()
+    a = lessons.propose(store, "demo", "Lekce A", [])
+    b = lessons.propose(store, "demo", "Lekce B", [])
+    env.tick()
+    msgs = [m for m in env.bot.sent if m["text"].startswith("🧠")]
+    assert [m["text"].split("\n")[1] for m in msgs] == ["Lekce A", "Lekce B"]
+    env.tick()
+    assert len([m for m in env.bot.sent if m["text"].startswith("🧠")]) == 2  # sent once
+    env.tick(env.press(msgs[0]["buttons"][0][0][1], msgs[0]))
+    assert env.bot.acks[-1][1] == "lekce platí"
+    assert serve.act(env.ctx, "lesson", {"project": "demo", "id": b, "approve": False}) == "lekce vyřazena"
+    assert lessons.active_texts(store, "demo") == ["Lekce A"]
+    assert [x["id"] for x in serve.snapshot(env.ctx)["lessons"]] == [a]  # retired ones hidden
+
+
+def test_dashboard_reject_with_reason(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    with env.sim.backlog_path.open("a", encoding="utf-8") as f:
+        f.write("## demo2\n- [~] P3 p-1 Návrh\n")
+    assert serve.act(env.ctx, "reject", {"task": "p-1", "reason": "  mimo\n fokus "}) == "zamítnuto"
+    [p1] = [t for t in parse(env.sim.backlog_path.read_bytes().decode("utf-8")) if t.id == "p-1"]
+    assert p1.note == "zamítnuto: mimo fokus"

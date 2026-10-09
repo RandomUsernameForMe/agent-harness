@@ -4,6 +4,7 @@ import time
 from collections import Counter
 from typing import Callable
 
+from .. import lessons
 from ..graph import RateLimited
 
 
@@ -14,6 +15,7 @@ class Script:
     def __init__(self, spec: dict, delay: float = 0.0, per_task: dict[str, dict] | None = None):
         self.spec, self.delay, self.per_task = spec, delay, per_task or {}
         self.calls, self._seq, self._lock = Counter(), Counter(), threading.Lock()
+        self.lessons_seen: dict[str, list[str]] = {}  # project → lessons the last discover would put in its prompt
 
     def next(self, node: str, task_id: str = "") -> dict:
         own = self.per_task.get(task_id) or {}
@@ -91,6 +93,7 @@ def fake_nodes(script: Script) -> dict:
 def fake_explore(script: Script) -> Callable:
     """Scenario `discover: {project: {proposals: [...]}}`; a list value advances per call of that project."""
     def explore(project: str, known) -> tuple[str, dict]:
+        script.lessons_seen[project] = lessons.active_texts(lessons.current_store(), project)
         v = script.next("discover", project)
         return json.dumps(v.get("proposals", []), ensure_ascii=False), {"usage": _usage("discover", "opus")}
     return explore
@@ -103,3 +106,19 @@ def fake_rank(script: Script) -> Callable:
         picked = [cands[i - 1] for i in v.get("pick", range(1, len(cands) + 1))]
         return json.dumps([{"id": c["id"], "why": "simulace"} for c in picked]), {"usage": _usage("prioritize", "opus")}
     return rank_fn
+
+
+def fake_reflect(script: Script) -> Callable:
+    """Scenario `nodes: {reflect: {lessons: [{project, text, scope, title?, source?}]}}`; default = nothing learned."""
+    def reflect_fn(items: list[dict], known: list[dict]) -> tuple[str, dict]:
+        v = script.next("reflect")
+        return json.dumps(v.get("lessons", []), ensure_ascii=False), {"usage": _usage("reflect", "opus")}
+    return reflect_fn
+
+
+def fake_pr_info(prs: dict) -> Callable:
+    """Scenario `prs: {task_id: [state, review text]}` for the simulated PR urls (…/sim/<task id>)."""
+    def pr_info(url: str) -> tuple[str, str] | None:
+        v = prs.get(url.rsplit("/", 1)[-1])
+        return tuple(v) if v else None
+    return pr_info

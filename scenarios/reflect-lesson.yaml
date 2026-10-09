@@ -1,0 +1,11 @@
+name: Zamítnutý návrh s důvodem → lekce → po schválení v promptu discover
+tasks:
+  - {project: demo, id: sim-01, title: "Unit testy pro lib/format.ts", priority: P2, status: "-", note: "zamítnuto: nechci testy bez souvislosti s bugem"}
+discover:
+  demo:
+    proposals: []
+nodes:
+  reflect:
+    lessons:
+      - {project: demo, scope: project, text: "Nenavrhuj unit testy bez souvislosti s konkrétním bugem.", source: ["rejected:sim-01"]}
+delay: 0.3

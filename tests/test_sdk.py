@@ -23,12 +23,22 @@ def test_api_requires_key():
 
 def test_render_prompt_with_braces_in_values():
     text = render_prompt("implement.md", title="T", description="D", plan="P",
-                         failure="Previous attempt failed:\n{weird} output")
+                         failure="Previous attempt failed:\n{weird} output", lessons="")
     assert "T" in text and "{weird} output" in text
 
 
+def test_prompts_carry_approved_lessons():
+    from harness.lessons import block
+    lessons = block(["akano3: testy jsou node --test"])
+    for name, fields in {"implement.md": {"plan": "P", "failure": ""}, "plan.md": {"clarifications": ""}}.items():
+        text = render_prompt(name, title="T", description="D", lessons=lessons, **fields)
+        assert "- akano3: testy jsou node --test" in text and "approved by the owner" in text
+    text = render_prompt("discover.md", project="p", max_diff_lines=800, verify="x", known="-", notes="-", lessons=lessons)
+    assert "- akano3: testy jsou node --test" in text
+
+
 def test_render_plan_prompt():
-    text = render_prompt("plan.md", title="Lazy loading", description="Popis", clarifications="")
+    text = render_prompt("plan.md", title="Lazy loading", description="Popis", clarifications="", lessons="")
     assert "Lazy loading" in text and "UNCLEAR:" in text
 
 
@@ -36,5 +46,5 @@ def test_plan_prompt_carries_owner_answers():
     from harness.nodes.real import clarification_block
     assert clarification_block([]) == ""
     block = clarification_block(["Q?", "měř LCP"])
-    text = render_prompt("plan.md", title="T", description="D", clarifications=block)
+    text = render_prompt("plan.md", title="T", description="D", clarifications=block, lessons="")
     assert "- Q?\n- měř LCP" in text and "owner" in text
