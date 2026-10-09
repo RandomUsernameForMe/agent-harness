@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, RateLimitEvent, ResultMessage, TextBlock,
-                              ToolResultBlock, ToolUseBlock, UserMessage, query)
+from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, RateLimitEvent, ResultMessage, SystemMessage,
+                              TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, query)
 
 from . import trace
 from .graph import RateLimited
@@ -86,6 +86,7 @@ class _Acc:
     tool_names: dict[str, str] = field(default_factory=dict)
     result: ResultMessage | None = None
     rate_limit: dict | None = None
+    billing: str | None = None
 
 
 def _on_assistant(acc: _Acc, msg: AssistantMessage) -> None:
@@ -118,6 +119,10 @@ async def _consume(stream, acc: _Acc) -> None:
             _on_user(acc, msg)
         elif isinstance(msg, ResultMessage):
             acc.result = msg
+        elif isinstance(msg, SystemMessage) and msg.subtype == "init":
+            # "none" = logged in with the subscription; any key source bills the API for real
+            source = msg.data.get("apiKeySource")
+            acc.billing = None if source is None else "subscription" if source == "none" else "api"
 
 
 def _tokens(result: ResultMessage | None) -> dict:
@@ -135,7 +140,7 @@ def _finish(acc: _Acc, model: str) -> WorkerResult:
         raise RateLimited(rate_limit and rate_limit["resets_at"])
     if result.is_error:
         raise RuntimeError(f"agent error: {result.subtype} {result.errors or ''}")
-    usage = {"model": model, **_tokens(result), "cost_usd": result.total_cost_usd}
+    usage = {"model": model, **_tokens(result), "cost_usd": result.total_cost_usd, "billing": acc.billing}
     text = result.result or (acc.texts[-1] if acc.texts else "")
     return WorkerResult(text, usage, rate_limit and rate_limit["utilization"], rate_limit)
 
@@ -146,7 +151,7 @@ def _call(t: trace.Trace, model: str, acc: _Acc, status: str, error: str | None)
             "duration_ms": r.duration_ms if r else int((time.time() - acc.started) * 1000),
             "num_turns": r.num_turns if r else None, **_tokens(r),
             "cost_usd": r.total_cost_usd if r else None, "status": status, "error": error,
-            "session_id": r.session_id if r else None}
+            "session_id": r.session_id if r else None, "billing": acc.billing}
 
 
 async def _collect(prompt: str, options: ClaudeAgentOptions, model: str, t: trace.Trace) -> WorkerResult:

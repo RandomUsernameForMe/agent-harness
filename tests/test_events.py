@@ -36,6 +36,17 @@ def test_latest_rate_limit(tmp_path):
     assert events.latest_rate_limit(conn) == {"utilization": 0.5}
 
 
+def test_latest_rate_limit_keeps_known_utilization_of_same_window(tmp_path):
+    conn = events.connect(tmp_path / "h.db")
+    warn = {"type": "five_hour", "status": "allowed_warning", "utilization": 0.9, "resets_at": 100}
+    events.log(conn, "r", "end", rate_limit=warn)
+    events.log(conn, "r", "paused", rate_limit={"resets_at": 100})
+    events.log(conn, "r", "end", rate_limit={**warn, "status": "allowed", "utilization": None})
+    assert events.latest_rate_limit(conn) == {**warn, "status": "allowed"}
+    events.log(conn, "r", "end", rate_limit={**warn, "status": "allowed", "utilization": None, "resets_at": 200})
+    assert events.latest_rate_limit(conn)["utilization"] is None
+
+
 def test_worker_column_and_migration_of_phase1_db(tmp_path):
     import sqlite3
     db = tmp_path / "old.db"
@@ -58,3 +69,11 @@ def test_usage_summary_counts_cache_tokens(tmp_path):
                                                        "cache_write_tokens": 100, "cost_usd": 0.2}])
     [u] = events.usage_summary(conn)
     assert u["cache_tokens"] == 1000
+
+
+def test_usage_summary_splits_paid_api_cost(tmp_path):
+    conn = events.connect(tmp_path / "h.db")
+    u = {"node": "plan", "model": "opus", "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.25}
+    events.log(conn, "r1", "end", node="plan", usage=[u, u | {"billing": "subscription"}, u | {"billing": "api"}])
+    [row] = events.usage_summary(conn)
+    assert (row["cost_usd"], row["paid_usd"]) == (0.75, 0.25)

@@ -1,6 +1,6 @@
 import pytest
-from claude_agent_sdk import (AssistantMessage, RateLimitEvent, RateLimitInfo, ResultMessage, TextBlock, ThinkingBlock,
-                              ToolResultBlock, ToolUseBlock, UserMessage)
+from claude_agent_sdk import (AssistantMessage, RateLimitEvent, RateLimitInfo, ResultMessage, SystemMessage, TextBlock,
+                              ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage)
 
 from harness import sdk, trace
 from harness.graph import RateLimited, _pausing
@@ -50,7 +50,8 @@ def test_steps_and_cache_tokens_recorded(monkeypatch, recorded):
     assert call | {"started": 0} == {
         "run_id": "run-1", "node": "plan", "worker": "gp-01", "model": "opus", "started": 0, "duration_ms": 1200,
         "num_turns": 4, "input_tokens": 12, "output_tokens": 300, "cache_read_tokens": 9000,
-        "cache_write_tokens": 700, "cost_usd": 0.25, "status": "ok", "error": None, "session_id": "sess-1"}
+        "cache_write_tokens": 700, "cost_usd": 0.25, "status": "ok", "error": None, "session_id": "sess-1",
+        "billing": None}
     assert [(s["kind"], s["tool"], s["is_error"]) for s in steps] == [
         ("text", None, False), ("tool_use", "Read", False), ("tool_result", "Read", False),
         ("tool_use", "Grep", False), ("tool_result", "Grep", True)]
@@ -129,3 +130,9 @@ def test_interrupt_is_not_recorded_as_ok(monkeypatch, recorded):
     with pytest.raises(KeyboardInterrupt):
         run(monkeypatch, TOOL_MSGS[0], KeyboardInterrupt())
     assert recorded[0][0]["status"] == "error"
+
+
+@pytest.mark.parametrize("source, billing", [("none", "subscription"), ("ANTHROPIC_API_KEY", "api")])
+def test_billing_from_init_api_key_source(monkeypatch, recorded, source, billing):
+    r = run(monkeypatch, SystemMessage("init", {"apiKeySource": source}), result())
+    assert r.usage["billing"] == billing and recorded[0][0]["billing"] == billing

@@ -14,7 +14,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS agent_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, worker TEXT, node TEXT, model TEXT, started REAL,
   duration_ms INTEGER, num_turns INTEGER, input_tokens INTEGER, output_tokens INTEGER,
-  cache_read_tokens INTEGER, cache_write_tokens INTEGER, cost_usd REAL, status TEXT, error TEXT, session_id TEXT);
+  cache_read_tokens INTEGER, cache_write_tokens INTEGER, cost_usd REAL, status TEXT, error TEXT, session_id TEXT,
+  billing TEXT);
 CREATE TABLE IF NOT EXISTS agent_steps (
   call_id INTEGER NOT NULL, seq INTEGER NOT NULL, kind TEXT, tool TEXT, summary TEXT, is_error INTEGER);
 CREATE TABLE IF NOT EXISTS task_outcomes (
@@ -23,8 +24,11 @@ CREATE INDEX IF NOT EXISTS agent_steps_call ON agent_steps(call_id);
 CREATE INDEX IF NOT EXISTS agent_calls_run ON agent_calls(run_id);
 """
 CALL_FIELDS = ("run_id", "worker", "node", "model", "started", "duration_ms", "num_turns", "input_tokens",
-               "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_usd", "status", "error", "session_id")
+               "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_usd", "status", "error", "session_id",
+               "billing")
 TOKENS = "input_tokens + output_tokens + cache_read_tokens + cache_write_tokens"
+# cost_usd is the SDK's list-price figure; only API-billed calls are money really spent (no billing = subscription)
+PAID = "ROUND(SUM(CASE WHEN billing = 'api' THEN COALESCE(cost_usd, 0) ELSE 0 END), 6) AS paid_usd"
 OVERHEAD_NODES = ("discover", "prioritize")
 URL_RE = re.compile(r" → (https?://\S+)\s*$")
 LOCAL_STATES = {"!": "failed", "?": "unclear"}
@@ -34,6 +38,16 @@ GH_TIMEOUT = 20
 
 def ensure(conn) -> None:
     conn.executescript(SCHEMA)
+    if "billing" not in {r[1] for r in conn.execute("PRAGMA table_info(agent_calls)")}:
+        conn.execute("ALTER TABLE agent_calls ADD COLUMN billing TEXT")
+
+
+def cost_label(cost: float, paid: float) -> str:
+    """Subscription cost is only an estimate; API cost was really paid — never sum them into one number."""
+    estimate, paid = (cost or 0) - (paid or 0), paid or 0
+    parts = ([f"~${estimate:.2f} odhad (subscription)"] if round(estimate, 2) else []) + \
+            ([f"${paid:.2f} zaplaceno (API)"] if round(paid, 2) else [])
+    return " + ".join(parts) or "$0.00"
 
 
 def record(conn, call: dict, steps: list[dict]) -> int:
@@ -68,16 +82,18 @@ def costs(conn) -> dict:
     tasks = _rows(conn, f"""
         WITH agg AS (
           SELECT worker, SUM(node = 'implement' AND status != 'rate_limited') AS attempts, COUNT(*) AS calls,
-                 ROUND(SUM(COALESCE(cost_usd, 0)), 6) AS cost_usd, SUM({TOKENS}) AS tokens, MIN(id) AS first
+                 ROUND(SUM(COALESCE(cost_usd, 0)), 6) AS cost_usd, {PAID}, SUM({TOKENS}) AS tokens, MIN(id) AS first
           FROM agent_calls WHERE node NOT IN ({placeholders}) AND worker IS NOT NULL GROUP BY worker),
         ids AS (SELECT worker AS task_id FROM agg UNION SELECT task_id FROM task_outcomes)
         SELECT ids.task_id, o.project, o.state, o.pr_url, COALESCE(agg.attempts, 0) AS attempts,
                COALESCE(agg.calls, 0) AS calls, COALESCE(agg.cost_usd, 0) AS cost_usd,
+               COALESCE(agg.paid_usd, 0) AS paid_usd,
                COALESCE(agg.tokens, 0) AS tokens
         FROM ids LEFT JOIN agg ON agg.worker = ids.task_id LEFT JOIN task_outcomes o ON o.task_id = ids.task_id
         ORDER BY agg.first IS NULL, agg.first, ids.task_id""", OVERHEAD_NODES)
     overhead = _rows(conn, f"""
-        SELECT run_id, node, COUNT(*) AS calls, ROUND(SUM(COALESCE(cost_usd, 0)), 6) AS cost_usd, SUM({TOKENS}) AS tokens
+        SELECT run_id, node, COUNT(*) AS calls, ROUND(SUM(COALESCE(cost_usd, 0)), 6) AS cost_usd, {PAID},
+               SUM({TOKENS}) AS tokens
         FROM agent_calls WHERE node IN ({placeholders}) GROUP BY run_id, node ORDER BY MIN(id)""", OVERHEAD_NODES)
     return {"tasks": tasks, "overhead": overhead}
 

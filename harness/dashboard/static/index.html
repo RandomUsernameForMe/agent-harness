@@ -130,14 +130,20 @@ async function selectRun(runId) {
   await Promise.all([loadRuns(), loadBacklog(), loadCalls(), refreshStepButton()]);
 }
 
-const money = (v) => (v ?? 0).toFixed(2);
+// subscription cost is only the SDK's list-price estimate; API cost was really paid
+const price = (cost, paid = 0) => {
+  const est = (cost ?? 0) - (paid ?? 0), parts = [];
+  if (est.toFixed(2) !== "0.00") parts.push(`≈$${est.toFixed(2)}`);
+  if ((paid ?? 0).toFixed(2) !== "0.00") parts.push(`$${paid.toFixed(2)} API`);
+  return parts.join(" + ") || "$0.00";
+};
 const tokens = (c) => (c.input_tokens ?? 0) + (c.output_tokens ?? 0) + (c.cache_read_tokens ?? 0) + (c.cache_write_tokens ?? 0);
 
 async function loadCalls() {
   if (!selectedRun) return;
   const calls = await api(`/runs/${encodeURIComponent(selectedRun)}/calls`);
-  $("calls").innerHTML = calls.length ? "<tr><th>Uzel</th><th>Worker</th><th>Model</th><th>Tahy</th><th>Kroky</th><th>Tokeny</th><th>$</th><th>Stav</th></tr>" + calls.map((c) =>
-    `<tr data-call="${c.id}" style="cursor:pointer"><td>${esc(c.node)}</td><td class="muted">${esc(c.worker)}</td><td>${esc(c.model)}</td><td>${c.num_turns ?? ""}</td><td>${c.steps}</td><td>${tokens(c)}</td><td>${money(c.cost_usd)}</td><td class="${c.status === "ok" ? "" : "k-error"}">${esc(c.status)}</td></tr>`).join("")
+  $("calls").innerHTML = calls.length ? "<tr><th>Uzel</th><th>Worker</th><th>Model</th><th>Tahy</th><th>Kroky</th><th>Tokeny</th><th title="≈ odhad u subscription, API = skutečně zaplaceno">Cena</th><th>Stav</th></tr>" + calls.map((c) =>
+    `<tr data-call="${c.id}" style="cursor:pointer"><td>${esc(c.node)}</td><td class="muted">${esc(c.worker)}</td><td>${esc(c.model)}</td><td>${c.num_turns ?? ""}</td><td>${c.steps}</td><td>${tokens(c)}</td><td>${price(c.cost_usd, c.billing === "api" ? c.cost_usd : 0)}</td><td class="${c.status === "ok" ? "" : "k-error"}">${esc(c.status)}</td></tr>`).join("")
     : '<tr><td class="muted">Žádná zaznamenaná volání (simulace nebo běh před fází 4).</td></tr>';
   $("calls").querySelectorAll("tr[data-call]").forEach((tr) => tr.onclick = () => showSteps(tr.dataset.call));
 }
@@ -149,9 +155,9 @@ async function showSteps(callId) {
 
 async function loadCosts() {
   const { tasks, overhead } = await api("/costs");
-  $("costs").innerHTML = "<tr><th>Úkol</th><th>Projekt</th><th>Stav</th><th>Pokusy</th><th>Tokeny</th><th>$</th></tr>" + tasks.map((t) =>
-    `<tr><td>${t.pr_url ? `<a href="${esc(t.pr_url)}" target="_blank" rel="noopener">${esc(t.task_id)}</a>` : esc(t.task_id)}</td><td class="muted">${esc(t.project)}</td><td>${esc(t.state ?? "-")}</td><td>${t.attempts}</td><td>${t.tokens}</td><td>${money(t.cost_usd)}</td></tr>`).join("") +
-    overhead.map((o) => `<tr class="muted"><td colspan="3">režie ${esc(o.run_id)} · ${esc(o.node)}</td><td>${o.calls}×</td><td>${o.tokens}</td><td>${money(o.cost_usd)}</td></tr>`).join("");
+  $("costs").innerHTML = "<tr><th>Úkol</th><th>Projekt</th><th>Stav</th><th>Pokusy</th><th>Tokeny</th><th title="≈ odhad u subscription, API = skutečně zaplaceno">Cena</th></tr>" + tasks.map((t) =>
+    `<tr><td>${t.pr_url ? `<a href="${esc(t.pr_url)}" target="_blank" rel="noopener">${esc(t.task_id)}</a>` : esc(t.task_id)}</td><td class="muted">${esc(t.project)}</td><td>${esc(t.state ?? "-")}</td><td>${t.attempts}</td><td>${t.tokens}</td><td>${price(t.cost_usd, t.paid_usd)}</td></tr>`).join("") +
+    overhead.map((o) => `<tr class="muted"><td colspan="3">režie ${esc(o.run_id)} · ${esc(o.node)}</td><td>${o.calls}×</td><td>${o.tokens}</td><td>${price(o.cost_usd, o.paid_usd)}</td></tr>`).join("");
 }
 
 function addEventRow(e) {
@@ -176,8 +182,8 @@ async function loadUsage() {
   const util = rate_limit?.utilization;
   $("quota").innerHTML = util == null ? '<p class="muted">Kvóta: zatím žádná data ze skutečného běhu.</p>' :
     `<p>Okno ${esc(rate_limit.type)}: ${(util * 100).toFixed(0)} %${rate_limit.resets_at ? ", reset " + new Date(rate_limit.resets_at * 1000).toLocaleTimeString() : ""}</p><div class="meter"><div style="width:${Math.min(util * 100, 100)}%"></div></div>`;
-  $("usage").innerHTML = "<tr><th>Den</th><th>Uzel</th><th>Model</th><th>Tokeny</th><th>$</th></tr>" + summary.map((u) =>
-    `<tr><td>${esc(u.day)}${u.simulated ? ' <span class="tag">sim</span>' : ""}</td><td>${esc(u.node)}</td><td>${esc(u.model)}</td><td>${u.input_tokens + u.output_tokens + (u.cache_tokens ?? 0)}</td><td>${(u.cost_usd ?? 0).toFixed(3)}</td></tr>`).join("");
+  $("usage").innerHTML = "<tr><th>Den</th><th>Uzel</th><th>Model</th><th>Tokeny</th><th title="≈ odhad u subscription, API = skutečně zaplaceno">Cena</th></tr>" + summary.map((u) =>
+    `<tr><td>${esc(u.day)}${u.simulated ? ' <span class="tag">sim</span>' : ""}</td><td>${esc(u.node)}</td><td>${esc(u.model)}</td><td>${u.input_tokens + u.output_tokens + (u.cache_tokens ?? 0)}</td><td>${price(u.cost_usd, u.paid_usd)}</td></tr>`).join("");
 }
 
 async function refreshStepButton() {
