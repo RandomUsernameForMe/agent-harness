@@ -203,3 +203,29 @@ def test_merge_pr_endpoint(tmp_path):
     assert client.post("/prs/merge", json={"project": "alpha", "number": 7},
                        headers={"Origin": "https://evil.example"}).status_code == 403
     assert merged == [("a", 7)]
+
+
+def test_progress_tracks_worker_nodes(client):
+    run_id = client.post("/simulate", json={"scenario": "flaky-tests", "delay": 0}).json()["run_id"]
+    wait_for(client, run_id, "run_end")
+    p = client.get(f"/runs/{run_id}/progress").json()
+    assert p["stages"] == {"pick_tasks": "done", "worker": "done", "reflect": "done"}
+    [w] = p["workers"]
+    assert w["id"] == "sim-01" and w["title"] and w["outcome"] == "pr_opened" and w["attempts"] == 3
+    assert list(w["nodes"]) == ["preflight", "make_worktree", "plan", "setup", "implement", "verify", "open_pr", "report"]
+    assert set(w["nodes"].values()) == {"done"}
+
+
+def test_progress_waiting_worker_stays_active(client):
+    run_id = client.post("/simulate", json={"scenario": "unclear-task", "delay": 0}).json()["run_id"]
+    wait_for(client, run_id, "waiting")
+    p = client.get(f"/runs/{run_id}/progress").json()
+    assert p["stages"]["worker"] == "active" and p["workers"][0]["last"] == "clarify"
+
+
+def test_progress_go_discover(client):
+    run_id = client.post("/simulate", json={"scenario": "go-happy", "delay": 0}).json()["run_id"]
+    wait_for(client, run_id, "waiting")
+    p = client.get(f"/runs/{run_id}/progress").json()
+    assert p["discover"] == {"demo": "done", "web": "done"}
+    assert p["stages"] == {"discover": "done", "prioritize": "done", "approve": "done"}

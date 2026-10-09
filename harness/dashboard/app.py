@@ -41,6 +41,39 @@ class SimulateRequest(BaseModel):
     delay: float | None = None
 
 
+def progress(evs: list[dict]) -> dict:
+    """Fold a run's events into node states (active/done/error): run-level stages, discover per project,
+    and per worker its nodes in order of first visit, title, outcome and attempts."""
+    stages: dict[str, str] = {}
+    discover: dict[str, str] = {}
+    workers: dict[str, dict] = {}
+    titles: dict[str, str] = {}
+    for e in evs:
+        node, kind, delta = e["node"], e["kind"], e["delta"] or {}
+        if kind not in ("start", "end", "error") or not node:
+            continue
+        state = {"start": "active", "end": "done", "error": "error"}[kind]
+        if node == "pick_tasks" and kind == "end":
+            titles |= {b["task"]["id"]: b["task"].get("title", "") for b in delta.get("batch") or []}
+        if node == "discover":
+            discover[e["worker"] or "?"] = state
+        elif e["worker"] is None:
+            stages[node] = state
+        else:
+            w = workers.setdefault(e["worker"], {"id": e["worker"], "nodes": {}, "outcome": None, "attempts": 0})
+            w["nodes"][node] = state
+            w["last"] = node
+            w["outcome"] = delta.get("outcome", w["outcome"])
+            w["attempts"] = delta.get("attempts", w["attempts"])
+            w["pr_url"] = delta.get("pr_url", w.get("pr_url"))
+    if discover:
+        stages["discover"] = "active" if "active" in discover.values() else "done"
+    if workers:
+        stages["worker"] = "active" if any(w["nodes"].get("report") != "done" for w in workers.values()) else "done"
+    return {"stages": stages, "discover": discover,
+            "workers": [w | {"title": titles.get(w["id"], "")} for w in workers.values()]}
+
+
 def local_origin(request: Request) -> bool:
     """Control endpoints spend quota: refuse cross-site requests (a page on the internet posting to localhost)."""
     origin = request.headers.get("origin")
@@ -132,6 +165,10 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
     @app.get("/runs/{run_id}/events")
     def run_events(run_id: str, after: int = 0):
         return events.events_after(conn, after, run_id)
+
+    @app.get("/runs/{run_id}/progress")
+    def run_progress(run_id: str):
+        return progress(events.events_after(conn, 0, run_id))
 
     @app.get("/runs/{run_id}/state")
     def run_state(run_id: str):
