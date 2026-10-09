@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness Desktop</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg:#0e0f13; --panel:rgba(27,28,34,.86); --text:#ececf1; --muted:#9a9aa6; --line:#2c2d35; --accent:#8c98ff;
+          --ok:#4cc38a; --bad:#ff6b5e; --warn:#f0b75a; --on-accent:#111114; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; font:15px/1.45 system-ui, sans-serif; color:var(--text);
+         background:var(--bg); }
+  /* left gutter for desktop icons, bottom for the taskbar */
+  .wrap { padding:28px 32px 72px 140px; display:grid; gap:16px; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); align-items:start; }
+  @media (max-width:1100px) { .wrap { grid-template-columns:1fr; padding:16px; } }
+  .col { display:grid; gap:16px; min-width:0; }
+  header { grid-column:1 / -1; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:26px; font-weight:700; margin:0 12px 0 0; letter-spacing:-.01em; }
+  h2 { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  h3 { font-size:17px; font-weight:650; margin:0; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; backdrop-filter:blur(6px); min-width:0; }
+  button { font:inherit; padding:6px 12px; border-radius:7px; border:1px solid var(--line); background:#22232b; color:var(--text); cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:var(--on-accent); border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.45; cursor:default; }
+  input[type=text] { font:inherit; padding:6px 10px; border-radius:7px; border:1px solid var(--line); background:#15161b; color:var(--text); flex:1 1 220px; }
+  a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+  .muted { color:var(--muted); }
+  .status { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); display:inline-block; }
+  .dot.running { background:var(--accent); }
+  .dot.waiting, .dot.approving, .dot.paused { background:var(--warn); }
+  .dot.crashed { background:var(--bad); } .dot.done { background:var(--ok); }
+  .spacer { flex:1; }
+  .projects { display:grid; gap:12px; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); }
+  .counts { display:flex; gap:12px; margin:6px 0 10px; font-size:13px; flex-wrap:wrap; }
+  .counts b { font-size:16px; }
+  ul { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
+  h4 { font-size:12px; font-weight:600; color:var(--muted); margin:14px 0 6px; text-transform:uppercase; letter-spacing:.05em; }
+  li.prop { display:flex; gap:6px; align-items:center; font-size:14px; min-width:0; }
+  li.prop details { flex:1; min-width:0; }
+  li.prop summary { color:var(--text); font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  li.prop button { padding:2px 8px; }
+  li.pr { display:flex; gap:8px; align-items:baseline; font-size:14px; min-width:0; }
+  li.pr a { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1; }
+  .tag { font-size:11px; padding:1px 7px; border-radius:99px; border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
+  .tag.draft { border-color:var(--warn); color:var(--warn); }
+  .item { border-top:1px solid var(--line); padding:10px 0; display:grid; gap:6px; }
+  .item:first-of-type { border-top:0; padding-top:0; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  details summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  details p { margin:6px 0 0; font-size:13px; white-space:pre-wrap; }
+  .attention { border-color:var(--warn); }
+  .meter { height:10px; background:var(--line); border-radius:99px; overflow:hidden; margin:6px 0; }
+  .meter > div { height:100%; background:var(--accent); }
+  .meter.high > div { background:var(--warn); }
+  .chart svg { width:100%; height:140px; display:block; }
+  .chart rect { fill:var(--accent); opacity:.85; } .chart rect:hover { opacity:1; }
+  .chart text { fill:var(--muted); font-size:10px; }
+  .big { font-size:22px; font-weight:700; }
+  #toast { position:fixed; right:24px; bottom:80px; background:var(--panel); border:1px solid var(--accent); padding:10px 14px; border-radius:10px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #toast.show { opacity:1; }
+  label.plan { display:flex; gap:8px; align-items:baseline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Harness</h1>
+    <div class="status" id="status"><span class="muted">načítám…</span></div>
+    <span class="spacer"></span>
+    <button class="primary" data-act="run" title="Zpracuje otevřené úkoly [ ] z BACKLOGu">Spustit frontu</button>
+    <button data-act="go" title="Opus navrhne plán, pak ho tady schválíš">harness go</button>
+    <button id="pause" data-act="pause">Pauza</button>
+  </header>
+
+  <div class="col">
+    <section id="planBox" class="attention" hidden><h2>Plán ke schválení</h2><div id="plan"></div></section>
+    <section id="questionBox" class="attention" hidden><h2>Dotazy k úkolům</h2><div id="questions"></div></section>
+    <div class="projects" id="projects"></div>
+  </div>
+
+  <div class="col">
+    <section><h2>Kvóta subscription</h2><div id="quota" class="muted">bez dat — žádný běh zatím nenahlásil využití</div></section>
+    <section class="chart"><h2>Tokeny po dnech (14 dní)</h2><div id="chart"></div><div id="cost" class="muted"></div></section>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let serveOn = false, questionIds = "", planId = "", projectsKey = "";
+
+function toast(text) {
+  $("toast").textContent = text;
+  $("toast").classList.add("show");
+  setTimeout(() => $("toast").classList.remove("show"), 3500);
+}
+
+async function act(action, body = {}) {
+  const r = await fetch(`/control/${action}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const data = await r.json().catch(() => ({}));
+  toast(r.ok ? (data.message || "OK") : (data.detail || `chyba ${r.status}`));
+  refresh();
+}
+
+function age(iso) {
+  const h = (Date.now() - new Date(iso)) / 36e5;
+  return h < 24 ? `${Math.max(1, Math.round(h))} h` : `${Math.round(h / 24)} d`;
+}
+
+function renderStatus(s) {
+  serveOn = !!s;
+  document.querySelectorAll("[data-act]").forEach(b => b.disabled = !serveOn);
+  if (!s) { $("status").innerHTML = `<span class="muted">serve neběží — tlačítka jsou vypnutá</span>`; return; }
+  const run = s.run;
+  $("pause").textContent = s.paused ? "Zapnout automatiku" : "Pauza";
+  $("pause").dataset.act = s.paused ? "resume" : "pause";
+  $("status").innerHTML = `<span class="dot ${run ? run.status : ""}"></span>
+    <span>${run ? `${esc(run.id)} — <b>${esc(run.status)}</b>` : "žádný běh"}</span>
+    <span class="muted">· automatika ${s.paused ? "vypnutá" : "zapnutá"} · okno ${esc(s.window)}${s.in_window ? " (teď)" : ""}</span>`;
+}
+
+function renderPlan(plan) {
+  $("planBox").hidden = !plan;
+  if (!plan || plan.id === planId) return;
+  planId = plan.id;
+  $("plan").innerHTML = plan.plan.map((p, i) => `<div class="item"><label class="plan">
+      <input type="checkbox" checked value="${i}"> <span><b>[${esc(p.project)}]</b> ${esc(p.title)}
+      <span class="tag">${p.source === "new" ? "nový" : "z BACKLOGu"}</span>${p.kind ? ` <span class="tag">${esc(p.kind)}</span>` : ""}
+      ${p.why ? `<br><span class="muted">${esc(p.why)}</span>` : ""}</span></label></div>`).join("")
+    + `<div class="row"><button class="primary" id="planOk">Schválit vybrané</button><button id="planQuit">Ukončit běh</button></div>`;
+  $("planOk").onclick = () => act("plan", {keep: [...$("plan").querySelectorAll("input:checked")].map(c => +c.value)});
+  $("planQuit").onclick = () => act("plan", {keep: "q"});
+}
+
+function renderQuestions(qs) {
+  const open = qs.filter(q => !q.answered);
+  $("questionBox").hidden = !open.length;
+  const ids = open.map(q => q.id).join();
+  if (ids === questionIds) return;  // don't wipe what the owner is typing
+  questionIds = ids;
+  $("questions").innerHTML = open.map(q => `<div class="item" data-id="${esc(q.id)}">
+      <div><b>[${esc(q.project)}] ${esc(q.task)}</b> ${esc(q.title)}</div><div>${esc(q.question)}</div>
+      <form class="row"><input type="text" aria-label="Odpověď" required><button class="primary">Odeslat</button>
+      <button type="button" class="skip">Přeskočit</button></form></div>`).join("");
+  $("questions").querySelectorAll(".item").forEach(el => {
+    const id = el.dataset.id;
+    el.querySelector("form").onsubmit = e => { e.preventDefault(); act("answer", {id, text: el.querySelector("input").value}); };
+    el.querySelector(".skip").onclick = () => act("answer", {id, text: ""});
+  });
+}
+
+function proposalList(props) {
+  if (!props.length) return "";
+  return `<h4>Návrhy</h4><ul>${props.map(t => `<li class="prop">
+      <details><summary title="${esc(t.title)}"><span class="muted">P${t.priority}</span> ${esc(t.title)}</summary>
+      ${t.description ? `<p>${esc(t.description)}</p>` : ""}</details>
+      <button data-task="${esc(t.id)}" data-do="approve" title="Schválit → fronta" aria-label="Schválit" ${serveOn ? "" : "disabled"}>✅</button>
+      <button data-task="${esc(t.id)}" data-do="reject" title="Zamítnout" aria-label="Zamítnout" ${serveOn ? "" : "disabled"}>❌</button></li>`).join("")}</ul>`;
+}
+
+function renderProjects(projects, proposals) {
+  const key = JSON.stringify([projects, proposals, serveOn]);
+  if (key === projectsKey) return;  // keep opened descriptions open between refreshes
+  projectsKey = key;
+  $("projects").innerHTML = projects.map(p => {
+    const c = p.counts;
+    const prs = p.prs === null ? `<span class="muted">PR nejdou načíst (gh)</span>`
+      : p.prs.length ? `<ul>${p.prs.map(pr => `<li class="pr"><span class="muted">#${pr.number}</span>
+          <a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.title)}</a>
+          ${pr.isDraft ? `<span class="tag draft">draft</span>` : ""}<span class="muted">${age(pr.createdAt)}</span></li>`).join("")}</ul>`
+      : `<span class="muted">žádné otevřené PR</span>`;
+    return `<section><h3>${esc(p.name)}</h3>
+      <div class="counts"><span><b>${c[" "]}</b> ve frontě</span><span><b>${c["~"]}</b> návrhů</span>
+        <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}</div>
+      ${prs}${proposalList(proposals.filter(t => t.project === p.name))}</section>`;
+  }).join("");
+  $("projects").querySelectorAll("[data-do]").forEach(b => b.onclick = () => act(b.dataset.do, {task: b.dataset.task}));
+}
+
+function renderUsage(u) {
+  const rl = u.rate_limit;
+  if (rl && rl.utilization != null) {
+    const pct = Math.round(rl.utilization * 100);
+    const reset = rl.resets_at ? new Date(rl.resets_at * 1000).toLocaleString("cs-CZ", {weekday: "short", hour: "2-digit", minute: "2-digit"}) : "?";
+    $("quota").classList.remove("muted");
+    $("quota").innerHTML = `<div class="big">${pct} %</div><div class="meter ${pct >= 70 ? "high" : ""}"><div style="width:${Math.min(pct, 100)}%"></div></div>
+      <span class="muted">reset ${esc(reset)}${rl.rate_limit_type ? ` · ${esc(rl.rate_limit_type)}` : ""}</span>`;
+  }
+  const days = [];
+  for (let i = 13; i >= 0; i--) days.push(new Date(Date.now() - i * 864e5).toLocaleDateString("sv-SE"));
+  const per = Object.fromEntries(days.map(d => [d, {tokens: 0, cost: 0}]));
+  for (const r of u.summary) if (!r.simulated && per[r.day]) {
+    per[r.day].tokens += r.input_tokens + r.output_tokens + r.cache_tokens;
+    per[r.day].cost += r.cost_usd;
+  }
+  const max = Math.max(1, ...days.map(d => per[d].tokens)), w = 100 / days.length;
+  $("chart").innerHTML = `<svg viewBox="0 0 100 70" preserveAspectRatio="none" role="img" aria-label="Tokeny po dnech">
+    ${days.map((d, i) => { const h = per[d].tokens / max * 58;
+      return `<rect x="${i * w + w * .15}" y="${60 - h}" width="${w * .7}" height="${h}"><title>${d}: ${per[d].tokens.toLocaleString("cs-CZ")} tokenů, $${per[d].cost.toFixed(2)}</title></rect>`; }).join("")}
+    </svg><div class="row muted" style="justify-content:space-between;font-size:12px"><span>${days[0].slice(5)}</span><span>dnes</span></div>`;
+  const total = days.reduce((a, d) => a + per[d].cost, 0), today = per[days[13]];
+  $("cost").textContent = `dnes ${today.tokens.toLocaleString("cs-CZ")} tokenů · 14 dní $${total.toFixed(2)} (odhad SDK)`;
+}
+
+async function refresh() {
+  try {
+    const o = await (await fetch("/overview")).json();
+    renderStatus(o.serve);
+    renderPlan(o.serve && o.serve.plan);
+    renderQuestions(o.serve ? o.serve.questions : []);
+    renderProjects(o.projects, o.proposals);
+  } catch (e) { $("status").innerHTML = `<span style="color:var(--bad)">dashboard nedostupný</span>`; }
+}
+async function refreshUsage() {
+  try { renderUsage(await (await fetch("/usage")).json()); } catch (e) {}
+}
+
+document.querySelectorAll("header [data-act]").forEach(b => b.onclick = () => act(b.dataset.act));
+refresh(); refreshUsage();
+setInterval(refresh, 15000);
+setInterval(refreshUsage, 60000);
+</script>
+</body>
+</html>

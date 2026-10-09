@@ -147,3 +147,32 @@ def test_calls_steps_and_costs(tmp_path):
     assert client.get(f"/calls/{cid}/steps").json()[0]["tool"] == "Read"
     costs = client.get("/costs").json()
     assert costs["tasks"][0]["task_id"] == "ak-01" and costs["tasks"][0]["cost_usd"] == 0.5
+
+
+def test_overview_reads_projects_yaml_every_request(tmp_path):
+    shutil.copytree(ROOT / "scenarios", tmp_path / "scenarios")
+    (tmp_path / "a").mkdir()
+    yaml_path = tmp_path / "projects.yaml"
+    yaml_path.write_text("projects:\n  alpha: {path: a, base: main, verify: [x]}\n", encoding="utf-8")
+    (tmp_path / "BACKLOG.md").write_text("# Backlog\n\n## alpha\n- [ ] P1 a-1 Úkol\n- [~] P2 a-2 Návrh\n  popis\n",
+                                         encoding="utf-8")
+    calls = []
+    prs = lambda path: calls.append(path) or [{"number": 1, "title": "PR", "url": "u", "isDraft": True}]
+    client = TestClient(create_app(tmp_path, prs=prs))
+    body = client.get("/overview").json()
+    [alpha] = body["projects"]
+    assert alpha["name"] == "alpha" and alpha["prs"][0]["number"] == 1
+    assert alpha["counts"][" "] == 1 and alpha["counts"]["~"] == 1
+    assert [p["id"] for p in body["proposals"]] == ["a-2"] and body["serve"] is None
+    yaml_path.write_text(yaml_path.read_text(encoding="utf-8") + "  beta: {path: b, base: main, verify: [x]}\n",
+                         encoding="utf-8")
+    body = client.get("/overview").json()
+    assert [p["name"] for p in body["projects"]] == ["alpha", "beta"]
+    assert body["projects"][1]["prs"] is None  # missing checkout: no gh call
+    assert len(calls) == 1  # alpha cached
+
+
+def test_control_needs_serve_and_local_origin(client):
+    assert client.post("/control/run", json={}).status_code == 503
+    assert client.post("/control/run", json={}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.get("/desktop").status_code == 200

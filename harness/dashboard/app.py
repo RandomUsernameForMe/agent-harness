@@ -2,20 +2,25 @@ import asyncio
 import json
 import tempfile
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from .. import backlog, events, traces
+from .. import backlog, events, serve, traces
 from ..graph import graph_mermaid, worker_mermaid
+from ..projects import load_config
 from ..runner import execute, pending, questions
 from ..simulate import Simulation, prepare
 
 STATIC = Path(__file__).parent / "static"
+PR_CACHE_SECONDS = 300
+LOCAL_ORIGINS = ("http://127.0.0.1:", "http://localhost:")
 
 
 class AnswerRequest(BaseModel):
@@ -29,7 +34,13 @@ class SimulateRequest(BaseModel):
     delay: float | None = None
 
 
-def create_app(home: Path) -> FastAPI:
+def local_origin(request: Request) -> bool:
+    """Control endpoints spend quota: refuse cross-site requests (a page on the internet posting to localhost)."""
+    origin = request.headers.get("origin")
+    return origin is None or origin.startswith(LOCAL_ORIGINS)
+
+
+def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs) -> FastAPI:
     from ..cli import open_db
 
     app = FastAPI(title="harness")
@@ -40,6 +51,14 @@ def create_app(home: Path) -> FastAPI:
     def scenarios() -> dict[str, Path]:
         return {p.stem: p for p in sorted((home / "scenarios").glob("*.yaml"))}
 
+    pr_cache: dict[Path, tuple[float, list | None]] = {}
+
+    def cached_prs(path: Path) -> list | None:
+        hit = pr_cache.get(path)
+        if hit is None or time.time() - hit[0] > PR_CACHE_SECONDS:
+            hit = pr_cache[path] = (time.time(), prs(path) if path.exists() else None)
+        return hit[1]
+
     def run_sim(sim: Simulation, inputs) -> None:
         with sim.lock:
             execute(sim.app, inputs, sim.config, conn, simulated=True)
@@ -47,6 +66,36 @@ def create_app(home: Path) -> FastAPI:
     @app.get("/")
     def index():
         return FileResponse(STATIC / "index.html")
+
+    @app.get("/desktop")
+    def desktop():
+        return FileResponse(STATIC / "desktop.html")
+
+    @app.get("/overview")
+    def overview():
+        cfg = load_config(home / "projects.yaml")  # every request: new projects show up without a restart
+        path = home / "BACKLOG.md"
+        tasks = backlog.parse(path.read_bytes().decode("utf-8")) if path.exists() else []
+        with ThreadPoolExecutor() as pool:
+            pulls = dict(zip(cfg.projects, pool.map(cached_prs, [p.path for p in cfg.projects.values()])))
+        projects = [{"name": name, "prs": pulls[name],
+                     "counts": {s: sum(t.project == name and t.status == s for t in tasks) for s in " ~x?-"}}
+                    for name in cfg.projects]
+        proposals = [asdict(t) for t in tasks if t.status == "~"]
+        return {"projects": projects, "proposals": proposals, "serve": control and serve.snapshot(control)}
+
+    @app.post("/control/{action}")
+    def control_action(action: str, request: Request, body: dict | None = None):
+        if not local_origin(request):
+            raise HTTPException(403, "cross-origin request")
+        if control is None:
+            raise HTTPException(503, "start `harness serve` to control runs")
+        try:
+            return {"message": serve.act(control, action, body or {})}
+        except KeyError:
+            raise HTTPException(404, f"unknown action {action!r}") from None
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
 
     @app.get("/graph")
     def graph():

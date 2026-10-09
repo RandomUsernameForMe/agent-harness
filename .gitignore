@@ -6,3 +6,4 @@ __pycache__/
 .superpowers/
 .playwright-mcp/
 serve_state.*
+serve.log

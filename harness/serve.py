@@ -4,9 +4,10 @@ One run at a time, executed by `spawn` (a thread in production). The main loop l
 every decision, so the daemon state is only touched from one thread; the run thread just hands back its result."""
 import json
 import sys
+import threading
 import time as _time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Callable
@@ -15,19 +16,20 @@ from . import backlog, events
 from .nodes.common import edit_backlog
 from .priority import config_focus, rank
 from .projects import Config
-from .runner import execute, questions, resets_at, run_config
+from .runner import approvals, execute, questions, resets_at, run_config
 from .telegram import Buttons, TelegramError
 
 POLL_SECONDS = 20
 UNKNOWN_RESET_WAIT = 15 * 60  # rate limit without a reset time: don't hammer it every tick
-ACTIVE = ("running", "waiting", "paused")
+ACTIVE = ("running", "waiting", "paused", "approving")
 HELP = ("Příkazy:\n/status — stav démona\n/queue — fronta úkolů\n/proposals — znovu poslat návrhy ke schválení\n"
         "/run — spustit běh hned\n/pause, /resume — vypnout/zapnout automatický start\n/digest — přehled teď\n\n"
         "Na dotaz k nejasnému úkolu odpověz reply na jeho zprávu.")
 
 
 def default_state(now: datetime) -> dict:
-    return {"paused": False, "run": None, "seq": 0, "offset": 0, "asked": {}, "answers": {}, "proposals_sent": [],
+    return {"paused": False, "run": None, "seq": 0, "offset": 0, "asked": {}, "answers": {}, "approval": None,
+            "proposals_sent": [],
             "last_scan": None, "last_digest": now.date().isoformat(), "digest_since": now.timestamp()}
 
 
@@ -73,6 +75,7 @@ class Ctx:
     busy: bool = False
     result: tuple | None = None  # (run_id, status | Exception)
     last_error: str | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)  # main loop vs dashboard requests
 
 
 def say(ctx: Ctx, text: str, buttons: Buttons | None = None) -> int | None:
@@ -139,18 +142,18 @@ def _quota_reserved(ctx: Ctx) -> bool:
     return ctx.now().timestamp() < (info.get("resets_at") or info["ts"] + 5 * 3600)
 
 
-def _start_new(ctx: Ctx, manual: bool = False) -> str:
+def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False) -> str:
     run = ctx.state["run"]
     if ctx.busy or (run and run["status"] in ACTIVE):
         return "Běh už probíhá nebo čeká — /status."
     if not manual and (ctx.state["paused"] or not in_window(ctx.now().time(), ctx.cfg.serve.window)
                        or _quota_reserved(ctx)):
         return ""
-    if not rank(_tasks(ctx), set(ctx.cfg.projects)):
+    if not discover and not rank(_tasks(ctx), set(ctx.cfg.projects)):
         return "Fronta je prázdná." if manual else ""
     ctx.state["seq"] += 1
-    run_id = f"run-{ctx.now():%Y%m%d-%H%M%S}-s{ctx.state['seq']}"
-    _start(ctx, run_id, ctx.new_inputs(run_id))
+    run_id = f"{'go' if discover else 'run'}-{ctx.now():%Y%m%d-%H%M%S}-s{ctx.state['seq']}"
+    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover})
     return f"▶️ Spouštím {run_id}."
 
 
@@ -174,6 +177,10 @@ def _advance(ctx: Ctx) -> None:
     elif status == "waiting":
         if ctx.state["answers"]:
             _resume(ctx, run["id"])
+    elif status == "approving":
+        if ctx.state["approval"]:
+            approval, ctx.state["approval"] = ctx.state["approval"], None
+            _start(ctx, run["id"], None, approval)
     else:
         _start_new(ctx)
 
@@ -391,6 +398,72 @@ def handle(ctx: Ctx, update: dict) -> None:
         say(ctx, reply)
 
 
+# --- dashboard --------------------------------------------------------------------------------------------
+
+def _open(ctx: Ctx) -> dict | None:
+    """Config of the run when it sits on interrupts the owner can answer (the run thread is idle)."""
+    run = ctx.state["run"]
+    if ctx.busy or not run or run["status"] not in ("waiting", "paused", "approving"):
+        return None
+    return run_config(run["id"])
+
+
+def snapshot(ctx: Ctx) -> dict:
+    with ctx.lock:
+        _collect(ctx)
+        run, config = ctx.state["run"], _open(ctx)
+        plans = approvals(ctx.app, config) if config and not ctx.state["approval"] else []
+        return {"paused": ctx.state["paused"], "window": fmt_window(ctx.cfg.serve.window),
+                "in_window": in_window(ctx.now().time(), ctx.cfg.serve.window),
+                "run": run and {**run, "status": "running" if ctx.busy else run["status"]},
+                "questions": [q | {"answered": q["id"] in ctx.state["answers"]}
+                              for q in (questions(ctx.app, config) if config else [])],
+                "plan": plans[0] if plans else None}
+
+
+def _approve_plan(ctx: Ctx, keep) -> str:
+    config = _open(ctx)
+    plans = approvals(ctx.app, config) if config else []
+    if not plans or ctx.state["approval"]:
+        return "Žádný plán ke schválení."
+    n = len(plans[0]["plan"])
+    if keep != "q" and not (isinstance(keep, list) and all(isinstance(i, int) and 0 <= i < n for i in keep)):
+        raise ValueError(f"keep must be 'q' or indices 0–{n - 1}")
+    ctx.state["approval"] = {plans[0]["id"]: keep if keep == "q" else sorted(set(keep))}
+    return "Běh ukončen." if keep == "q" else f"Schváleno {len(set(keep))} z {n}."
+
+
+def _web_answer(ctx: Ctx, iid: str, text: str) -> str:
+    config = _open(ctx)
+    if not config or iid in ctx.state["answers"] or iid not in {q["id"] for q in questions(ctx.app, config)}:
+        return "Dotaz už není otevřený."
+    ctx.state["answers"][iid] = text
+    return "Odpověď uložena."
+
+
+def act(ctx: Ctx, action: str, data: dict) -> str:
+    """Dashboard buttons. Same thread rules as Telegram: state changes only under the lock."""
+    with ctx.lock:
+        _collect(ctx)
+        if action in ("run", "go"):
+            reply = _start_new(ctx, manual=True, discover=action == "go")
+        elif action in ("approve", "reject"):
+            reply = _decide(ctx, str(data.get("task")), action == "approve")
+        elif action == "plan":
+            reply = _approve_plan(ctx, data.get("keep"))
+        elif action == "answer":
+            reply = _web_answer(ctx, str(data.get("id")), str(data.get("text") or ""))
+        elif action in ("pause", "resume"):
+            reply = _command(ctx, action)
+        else:
+            raise KeyError(action)
+        if action in ("plan", "answer") and not ctx.busy:
+            _advance(ctx)
+        if ctx.state_path:
+            save_state(ctx.state_path, ctx.state)
+        return reply
+
+
 # --- loop -------------------------------------------------------------------------------------------------
 
 def tick(ctx: Ctx, updates: list[dict]) -> None:
@@ -426,7 +499,8 @@ def loop(ctx: Ctx) -> None:
             updates = []
             _time.sleep(5)
         try:
-            tick(ctx, updates)
+            with ctx.lock:
+                tick(ctx, updates)
         except Exception as e:  # e.g. a hand-edited BACKLOG.md that no longer parses: keep running, tell once
             error = f"{type(e).__name__}: {e}"
             print(f"tick: {error}", file=sys.stderr)

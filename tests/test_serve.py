@@ -391,3 +391,46 @@ def test_reply_to_question_being_resumed_is_not_lost_silently(tmp_path):
     env.tick(env.msg("měř LCP", reply_to=q["id"]))
     env.tick(env.msg("vlastně TTFB", reply_to=q["id"]))
     assert "už mám" in env.bot.texts()[-1]
+
+
+def test_dashboard_go_waits_for_plan_then_runs_kept_tasks(tmp_path):
+    env = Env(tmp_path, "go-happy", now=NOON)
+    assert "Spouštím go-" in serve.act(env.ctx, "go", {})
+    snap = serve.snapshot(env.ctx)
+    assert snap["run"]["status"] == "approving" and len(snap["plan"]["plan"]) == 3
+    env.tick()
+    assert serve.snapshot(env.ctx)["run"]["status"] == "approving"  # no tick resumes without the owner
+    assert serve.act(env.ctx, "run", {}).startswith("Běh už probíhá")
+    with pytest.raises(ValueError):
+        serve.act(env.ctx, "plan", {"keep": [7]})
+    assert serve.act(env.ctx, "plan", {"keep": [0, 2]}) == "Schváleno 2 z 3."
+    snap = serve.snapshot(env.ctx)
+    assert snap["run"]["status"] == "done" and snap["plan"] is None
+    assert sorted(env.statuses().values()) == ["-", "x", "x", "~"]
+
+
+def test_dashboard_plan_quit_ends_run(tmp_path):
+    env = Env(tmp_path, "go-happy", now=NOON)
+    serve.act(env.ctx, "go", {})
+    assert serve.act(env.ctx, "plan", {"keep": "q"}) == "Běh ukončen."
+    assert serve.snapshot(env.ctx)["run"]["status"] == "done"
+    assert serve.act(env.ctx, "plan", {"keep": "q"}) == "Žádný plán ke schválení."
+
+
+def test_dashboard_answers_question_and_decides_proposal(tmp_path):
+    env = Env(tmp_path, "clarify-answered", now=NOON)
+    serve.act(env.ctx, "run", {})
+    [q] = serve.snapshot(env.ctx)["questions"]
+    assert serve.act(env.ctx, "answer", {"id": "nope", "text": "x"}) == "Dotaz už není otevřený."
+    assert serve.act(env.ctx, "answer", {"id": q["id"], "text": "měř LCP"}) == "Odpověď uložena."
+    assert env.statuses() == {"sim-01": "x"}
+    with pytest.raises(KeyError):
+        serve.act(env.ctx, "nope", {})
+
+
+def test_dashboard_pause_resume(tmp_path):
+    env = Env(tmp_path, "happy-path", now=NOON)
+    serve.act(env.ctx, "pause", {})
+    assert serve.snapshot(env.ctx)["paused"] is True
+    serve.act(env.ctx, "resume", {})
+    assert serve.snapshot(env.ctx)["paused"] is False
