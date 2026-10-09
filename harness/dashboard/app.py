@@ -3,6 +3,7 @@ import json
 import tempfile
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -44,6 +45,7 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
     from ..cli import open_db
 
     app = FastAPI(title="harness")
+    boot = uuid.uuid4().hex  # changes on every serve restart → open dashboards reload their page
     conn, saver = open_db(home)
     sims: dict[str, Simulation] = {}
     mermaid = {"mermaid": graph_mermaid(), "worker": worker_mermaid()}
@@ -82,7 +84,8 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
                      "counts": {s: sum(t.project == name and t.status == s for t in tasks) for s in " ~x?-"}}
                     for name in cfg.projects]
         proposals = [asdict(t) for t in tasks if t.status == "~"]
-        return {"projects": projects, "proposals": proposals, "serve": control and serve.snapshot(control)}
+        return {"projects": projects, "proposals": proposals, "serve": control and serve.snapshot(control),
+                "boot": boot}
 
     @app.post("/control/{action}")
     def control_action(action: str, request: Request, body: dict | None = None):

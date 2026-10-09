@@ -1,6 +1,6 @@
 # Harness — fáze 5: self-improvement (design)
 
-Datum: 2026-10-09 · Stav: implementováno, kritéria 1–3 ověřena testy (`test_rejected_proposal_becomes_lesson_in_next_discover_prompt`, `test_repeated_failure_proposes_harness_prompt_change`, `test_harness_project_may_only_touch_its_prompts`). Kritérium 4 čeká na ostrý běh.
+Datum: 2026-10-09 · Stav: implementováno, kritéria 1–3 ověřena testy (`test_rejected_proposal_becomes_lesson_in_next_discover_prompt`, `test_repeated_failure_proposes_harness_prompt_change`, `test_harness_project_may_only_touch_its_prompts`). Kritérium 4 ověřeno 2026-10-09 ostře: reflexe nad 3 reálnými zamítnutími v guth-pictures navrhla lekci `d4a646be` (Opus, $0.08), vlastník ji schválil v dashboardu a sestavený discover prompt pro guth-pictures ji obsahuje (pro akano3 ne). Prompt sestaven bez volání modelu, ne z transkriptu `go`.
 
 ## 1. Účel
 
