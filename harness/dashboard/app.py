@@ -1,5 +1,6 @@
 import asyncio
 import json
+import subprocess
 import tempfile
 import threading
 import time
@@ -29,6 +30,11 @@ class AnswerRequest(BaseModel):
     answer: str
 
 
+class MergeRequest(BaseModel):
+    project: str
+    number: int
+
+
 class SimulateRequest(BaseModel):
     scenario: str
     step: bool = False
@@ -41,7 +47,7 @@ def local_origin(request: Request) -> bool:
     return origin is None or origin.startswith(LOCAL_ORIGINS)
 
 
-def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs) -> FastAPI:
+def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs, merge=traces.merge_pr) -> FastAPI:
     from ..cli import open_db
 
     app = FastAPI(title="harness")
@@ -99,6 +105,21 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
             raise HTTPException(404, f"unknown action {action!r}") from None
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
+
+    @app.post("/prs/merge")
+    def merge_pr(req: MergeRequest, request: Request):
+        if not local_origin(request):
+            raise HTTPException(403, "cross-origin request")
+        project = load_config(home / "projects.yaml").projects.get(req.project)
+        if project is None:
+            raise HTTPException(404, f"unknown project {req.project!r}")
+        try:
+            message = merge(project.path, req.number)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+            raise HTTPException(409, str(e)) from None
+        finally:
+            pr_cache.pop(project.path, None)
+        return {"message": message}
 
     @app.get("/graph")
     def graph():

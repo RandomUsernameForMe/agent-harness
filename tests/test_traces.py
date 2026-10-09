@@ -137,3 +137,13 @@ def test_indexes_exist(tmp_path):
     conn = db(tmp_path)
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
     assert {"agent_steps_call", "agent_calls_run"} <= names
+
+
+def test_ci_state():
+    run = lambda status, conclusion="": {"__typename": "CheckRun", "status": status, "conclusion": conclusion}
+    assert traces.ci_state([]) is None
+    assert traces.ci_state([run("COMPLETED", "SUCCESS"), run("COMPLETED", "SKIPPED")]) == "ok"
+    assert traces.ci_state([run("COMPLETED", "SUCCESS"), run("IN_PROGRESS")]) == "pending"
+    assert traces.ci_state([run("IN_PROGRESS"), run("COMPLETED", "FAILURE")]) == "fail"
+    assert traces.ci_state([{"__typename": "StatusContext", "state": "PENDING"}]) == "pending"
+    assert traces.ci_state([{"__typename": "StatusContext", "state": "ERROR"}]) == "fail"

@@ -80,7 +80,7 @@ Stav démona se ukládá do `serve_state.json` (je v gitignore).
 - návrhy `[~]` s ✅/❌,
 - kvótu subscription a tokeny a cenu po dnech.
 
-Tlačítka spustí frontu (`run`) nebo `harness go` a plán z `go` se tam i schvaluje. Pozastavují automatiku a odpovídají na dotazy. Akce jdou přes hlavní smyčku serve, takže nikdy neběží dva běhy naráz.
+Tlačítka spustí frontu (`run`) nebo `harness go` a plán z `go` se tam i schvaluje. Chipy projektů pod hlavičkou omezí obě akce na vybrané projekty (výběr si pamatuje prohlížeč). Automatika v okně dál bere všechny projekty a discover pouští jen `harness go`. U PR je stav CI a tlačítko Merge (dvě kliknutí): draft označí jako ready, udělá squash merge a smaže větev a worktree harnessu. Pozastavují automatiku a odpovídají na dotazy. Akce jdou přes hlavní smyčku serve, takže nikdy neběží dva běhy naráz.
 
 Tapeta: [Lively Wallpaper](https://github.com/rocksdanister/lively) (`winget install rocksdanister.LivelyWallpaper`), tapeta typu URL na `/desktop`. Kliká se na odkryté ploše (Win+D). Psaní odpovědí vyžaduje v Lively nastavení „Input → Mouse & Keyboard“.
 

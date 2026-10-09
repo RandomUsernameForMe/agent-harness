@@ -178,3 +178,28 @@ def test_control_needs_serve_and_local_origin(client):
     assert client.post("/control/run", json={}).status_code == 503
     assert client.post("/control/run", json={}, headers={"Origin": "https://evil.example"}).status_code == 403
     assert client.get("/desktop").status_code == 200
+
+
+def test_merge_pr_endpoint(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "projects.yaml").write_text("projects:\n  alpha: {path: a, base: main, verify: [x]}\n", encoding="utf-8")
+    listed, merged = [], []
+    prs = lambda path: listed.append(path) or []
+
+    def merge(path, number):
+        if number == 13:
+            raise RuntimeError("Pull request is not mergeable")
+        merged.append((path.name, number))
+        return f"PR #{number} zmergován (squash)."
+    client = TestClient(create_app(tmp_path, prs=prs, merge=merge))
+    client.get("/overview")
+    assert client.post("/prs/merge", json={"project": "alpha", "number": 7}).json() == {
+        "message": "PR #7 zmergován (squash)."}
+    assert merged == [("a", 7)]
+    client.get("/overview")
+    assert len(listed) == 2  # merge dropped the PR cache
+    assert client.post("/prs/merge", json={"project": "alpha", "number": 13}).status_code == 409
+    assert client.post("/prs/merge", json={"project": "nope", "number": 7}).status_code == 404
+    assert client.post("/prs/merge", json={"project": "alpha", "number": 7},
+                       headers={"Origin": "https://evil.example"}).status_code == 403
+    assert merged == [("a", 7)]

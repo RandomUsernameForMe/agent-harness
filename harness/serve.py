@@ -143,18 +143,26 @@ def _quota_reserved(ctx: Ctx) -> bool:
     return ctx.now().timestamp() < (info.get("resets_at") or info["ts"] + 5 * 3600)
 
 
-def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False) -> str:
+def _only(ctx: Ctx, projects) -> list[str] | None:
+    if projects is None:
+        return None
+    if not isinstance(projects, list) or not projects or not set(projects) <= set(ctx.cfg.projects):
+        raise ValueError(f"projects must be a non-empty subset of {sorted(ctx.cfg.projects)}")
+    return projects
+
+
+def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False, only: list[str] | None = None) -> str:
     run = ctx.state["run"]
     if ctx.busy or (run and run["status"] in ACTIVE):
         return "Běh už probíhá nebo čeká — /status."
     if not manual and (ctx.state["paused"] or not in_window(ctx.now().time(), ctx.cfg.serve.window)
                        or _quota_reserved(ctx)):
         return ""
-    if not discover and not rank(_tasks(ctx), set(ctx.cfg.projects)):
+    if not discover and not rank(_tasks(ctx), set(only or ctx.cfg.projects)):
         return "Fronta je prázdná." if manual else ""
     ctx.state["seq"] += 1
     run_id = f"{'go' if discover else 'run'}-{ctx.now():%Y%m%d-%H%M%S}-s{ctx.state['seq']}"
-    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover})
+    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover, "only": only})
     return f"▶️ Spouštím {run_id}."
 
 
@@ -494,7 +502,7 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
     with ctx.lock:
         _collect(ctx)
         if action in ("run", "go"):
-            reply = _start_new(ctx, manual=True, discover=action == "go")
+            reply = _start_new(ctx, manual=True, discover=action == "go", only=_only(ctx, data.get("projects")))
         elif action in ("approve", "reject"):
             reply = _decide(ctx, str(data.get("task")), action == "approve", str(data.get("reason") or ""))
         elif action == "lesson":

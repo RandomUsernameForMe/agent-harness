@@ -52,3 +52,39 @@ def test_commit_if_dirty_is_idempotent(tmp_path):
 def test_numstat_lines_skips_binary():
     assert numstat_lines("3\t1\ta.py\n-\t-\timg.png\n10\t0\tb.py\n") == 14
     assert numstat_lines("") == 0
+
+
+def test_merge_pr_readies_draft_then_drops_worktree_and_branches(tmp_path, monkeypatch):
+    from harness import traces
+    repo = make_repo(tmp_path)
+    wt = ensure_worktree(project(repo), "t-1", "harness/t-1")
+    git(["push", "-q", "-u", "origin", "harness/t-1"], wt)
+    calls = []
+
+    def gh(args, cwd):
+        calls.append(args[:2])
+        out = '{"state": "OPEN", "isDraft": true, "headRefName": "harness/t-1"}' if args[1] == "view" else ""
+        return subprocess.CompletedProcess(args, 0, out, "")
+    monkeypatch.setattr(traces, "_gh", gh)
+    assert traces.merge_pr(repo, 5) == "PR #5 zmergován (squash)."
+    assert calls == [["pr", "view"], ["pr", "ready"], ["pr", "merge"]]
+    assert not wt.exists()
+    assert git(["branch", "--list", "harness/t-1"], repo) == ""
+    assert git(["ls-remote", "--heads", "origin", "harness/t-1"], repo) == ""
+
+
+def test_merge_pr_refuses_closed_and_keeps_user_worktree(tmp_path, monkeypatch):
+    import pytest
+
+    from harness import traces
+    repo = make_repo(tmp_path)
+    user_wt = tmp_path / "mine"
+    git(["worktree", "add", "-q", "-b", "feat", str(user_wt)], repo)
+    view = {"state": "CLOSED"}
+    monkeypatch.setattr(traces, "_gh", lambda args, cwd: subprocess.CompletedProcess(
+        args, 0, '{"state": "%s", "isDraft": false, "headRefName": "feat"}' % view["state"], ""))
+    with pytest.raises(RuntimeError, match="closed"):
+        traces.merge_pr(repo, 5)
+    view["state"] = "OPEN"
+    traces.merge_pr(repo, 5)
+    assert user_wt.exists()  # only harness worktrees are force-removed

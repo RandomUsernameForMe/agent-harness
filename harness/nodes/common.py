@@ -36,7 +36,7 @@ def make_pick_tasks(backlog_path: Path, cfg: Config):
             tasks = backlog.parse(_read(backlog_path))
         planned = state.get("planned")
         if planned is None:
-            ranked = rank(tasks, set(cfg.projects), config_focus(cfg), weights)
+            ranked = rank(tasks, set(state.get("only") or cfg.projects), config_focus(cfg), weights)
         else:
             order = {tid: i for i, tid in enumerate(planned)}
             ranked = sorted((t for t in tasks if t.status == " " and t.id in order), key=lambda t: order[t.id])
@@ -97,7 +97,7 @@ def make_prioritize(backlog_path: Path, cfg: Config,
     def prioritize(state: dict) -> dict:
         with _backlog_lock:
             tasks = backlog.parse(_read(backlog_path))
-        cands = candidates(state.get("proposals") or [], tasks, set(cfg.projects))
+        cands = candidates(state.get("proposals") or [], tasks, set(state.get("only") or cfg.projects))
         if not cands:
             return {"plan": []}
         n, focus = state.get("max_tasks", cfg.max_tasks_per_run), config_focus(cfg)
