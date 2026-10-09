@@ -53,3 +53,4 @@
 ## [2026-10-09] - Desktop dashboard: živá pipeline běhu, akční karty místo „harness go“, přepínač automatického startu místo Pauzy
 ## [2026-10-09] - Dashboard: kvóta subscription ukazuje stav i bez % (SDK hlásí utilization jen u varování)
 ## [2026-10-09] - Ceny: odhad u subscription (~/≈) oddělen od skutečně zaplaceného API (billing z apiKeySource)
+## [2026-10-09] - Živá kvóta subscription (5h + 7 dní) z endpointu /usage Claude Code; serve se jí řídí, při chybě záloha na SDK
