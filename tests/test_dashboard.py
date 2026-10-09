@@ -229,3 +229,16 @@ def test_progress_go_discover(client):
     p = client.get(f"/runs/{run_id}/progress").json()
     assert p["discover"] == {"demo": "done", "web": "done"}
     assert p["stages"] == {"discover": "done", "prioritize": "done", "approve": "done"}
+
+
+def test_usage_prefers_live_quota_and_falls_back_to_sdk_events(tmp_path):
+    from harness import events
+    shutil.copytree(ROOT / "scenarios", tmp_path / "scenarios")
+    conn = events.connect(tmp_path / "harness.db")
+    events.log(conn, "r", "end", rate_limit={"type": "five_hour", "status": "allowed", "utilization": None,
+                                             "resets_at": 100})
+    five, week = {"type": "five_hour", "utilization": 0.49}, {"type": "seven_day", "utilization": 0.3}
+    live = TestClient(create_app(tmp_path, live_quota=lambda: {"five_hour": five, "seven_day": week})).get("/usage").json()
+    assert (live["rate_limit"], live["seven_day"]) == (five, week)
+    dead = TestClient(create_app(tmp_path, live_quota=lambda: None)).get("/usage").json()
+    assert dead["rate_limit"]["status"] == "allowed" and dead["seven_day"] is None

@@ -71,6 +71,7 @@ class Ctx:
     scan: Callable[[], int]
     simulated: bool = False
     state_path: Path | None = None
+    live_quota: Callable[[], dict | None] = lambda: None  # quota.fetch in the real serve
     # handoff: the run thread only ever sets `result`; `busy` is set and cleared by the main loop alone
     busy: bool = False
     result: tuple | None = None  # (run_id, status | Exception)
@@ -137,10 +138,12 @@ def _collect(ctx: Ctx) -> None:
 def _quota_reserved(ctx: Ctx) -> bool:
     """A run stops at quota_threshold, but its quota dies with it: without this a new run would start on the
     next tick and eat the owner's reserve. Hold automatic starts until that window resets."""
-    info = events.latest_utilization(ctx.conn, ctx.simulated)
+    now = ctx.now().timestamp()
+    # live endpoint first: the SDK reports utilization only near the limit, so its last value may be stale
+    info = (ctx.live_quota() or {}).get("five_hour") or events.latest_utilization(ctx.conn, ctx.simulated)
     if info is None or info["utilization"] < ctx.cfg.quota_threshold:
         return False
-    return ctx.now().timestamp() < (info.get("resets_at") or info["ts"] + 5 * 3600)
+    return now < (info.get("resets_at") or info.get("ts", now) + 5 * 3600)
 
 
 def _only(ctx: Ctx, projects) -> list[str] | None:

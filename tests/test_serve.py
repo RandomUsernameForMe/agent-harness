@@ -332,6 +332,23 @@ def test_quota_threshold_holds_auto_start_until_reset(tmp_path):
     assert env.statuses() == {"sim-01": "x"}
 
 
+def test_live_quota_overrides_stale_sdk_utilization(tmp_path):
+    env = Env(tmp_path, "happy-path")
+    reset = (NIGHT + timedelta(hours=2)).timestamp()
+    events.log(env.ctx.conn, "earlier", "end", node="implement", simulated=True,
+               rate_limit={"type": "five_hour", "utilization": 0.9, "resets_at": reset})
+    env.ctx.live_quota = lambda: {"five_hour": {"utilization": 0.3, "resets_at": reset}}
+    env.tick()
+    assert env.statuses() == {"sim-01": "x"}  # endpoint says 30 % now: the old 90 % no longer holds the start
+
+
+def test_live_quota_holds_auto_start(tmp_path):
+    env = Env(tmp_path, "happy-path")
+    env.ctx.live_quota = lambda: {"five_hour": {"utilization": 0.8, "resets_at": (NIGHT + timedelta(hours=1)).timestamp()}}
+    env.tick()
+    assert env.statuses() == {"sim-01": " "}
+
+
 def test_manual_run_ignores_quota_reserve(tmp_path):
     env = Env(tmp_path, "happy-path", now=NOON)
     events.log(env.ctx.conn, "earlier", "end", node="implement", simulated=True,

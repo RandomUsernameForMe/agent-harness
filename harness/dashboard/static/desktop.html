@@ -376,13 +376,13 @@ function renderLessons(list) {
 function renderUsage(u) {
   const rl = u.rate_limit;
   if (rl) {
-    const reset = rl.resets_at ? new Date(rl.resets_at * 1000).toLocaleString("cs-CZ", {weekday: "short", hour: "2-digit", minute: "2-digit"}) : "?";
-    const meta = `<span class="muted">reset ${esc(reset)}${rl.type ? ` · ${esc(rl.type)}` : ""}</span>`;
     const pct = rl.utilization == null ? null : Math.round(rl.utilization * 100);
+    const source = rl.status === "live" ? "živě" : "z posledního běhu";
     $("quota").classList.remove("muted");
-    // SDK reports utilization only near the limit (allowed_warning)
-    $("quota").innerHTML = pct == null ? `<div class="big">${rl.status === "rejected" ? "vyčerpáno" : "OK"}</div><div class="muted">pod hranicí varování, přesné % SDK nehlásí</div>${meta}` :
-      `<div class="big">${pct} %</div><div class="meter ${pct >= 70 ? "high" : ""}"><div style="width:${Math.min(pct, 100)}%"></div></div>${meta}`;
+    // the live endpoint can fail; the SDK fallback reports utilization only near the limit (allowed_warning)
+    $("quota").innerHTML = (pct == null ? `<div class="big">${rl.status === "rejected" ? "vyčerpáno" : "OK"}</div><div class="muted">pod hranicí varování, přesné % SDK nehlásí</div>` :
+      `<div class="big">${pct} %</div>${meter(pct)}`) + quotaMeta("5h okno", rl, source)
+      + (u.seven_day ? `<div style="margin-top:8px">${meter(Math.round(u.seven_day.utilization * 100))}</div>${quotaMeta(`7 dní ${Math.round(u.seven_day.utilization * 100)} %`, u.seven_day, source)}` : "");
   }
   const days = [];
   for (let i = 13; i >= 0; i--) days.push(new Date(Date.now() - i * 864e5).toLocaleDateString("sv-SE"));
@@ -399,6 +399,13 @@ function renderUsage(u) {
     </svg><div class="row muted" style="justify-content:space-between;font-size:12px"><span>${days[0].slice(5)}</span><span>dnes</span></div>`;
   const sum = k => days.reduce((a, d) => a + per[d][k], 0), today = per[days[13]];
   $("cost").textContent = `dnes ${today.tokens.toLocaleString("cs-CZ")} tokenů · 14 dní ${costLabel(sum("cost"), sum("paid"))}`;
+}
+
+const meter = pct => `<div class="meter ${pct >= 70 ? "high" : ""}"><div style="width:${Math.min(pct, 100)}%"></div></div>`;
+
+function quotaMeta(label, w, source) {
+  const reset = w.resets_at ? new Date(w.resets_at * 1000).toLocaleString("cs-CZ", {weekday: "short", hour: "2-digit", minute: "2-digit"}) : "?";
+  return `<span class="muted">${esc(label)} · reset ${esc(reset)} · ${esc(source)}</span>`;
 }
 
 // subscription cost is only the SDK's list-price estimate; API cost was really paid — never one number

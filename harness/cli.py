@@ -12,7 +12,7 @@ from pathlib import Path
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.store.sqlite import SqliteStore
 
-from . import backlog, events, lessons, serve, trace, traces
+from . import backlog, events, lessons, quota, serve, trace, traces
 from .graph import build_graph, initial_state
 from .nodes.common import (edit_backlog, make_approve, make_discover, make_pick_tasks, make_prioritize, make_reflect,
                            make_report)
@@ -206,7 +206,7 @@ def cmd_serve(args) -> int:
                     state=serve.load_state(state_path, datetime.now()),
                     spawn=lambda job: threading.Thread(target=job, daemon=True).start(),
                     now=datetime.now, scan=lambda: _scan_into(cfg, backlog_path), state_path=state_path,
-                    store=store)
+                    store=store, live_quota=quota.fetch)
     web = create_app(args.home, control=ctx)
     threading.Thread(target=uvicorn.run, args=(web,), kwargs={"host": "127.0.0.1", "port": args.port},
                      daemon=True).start()

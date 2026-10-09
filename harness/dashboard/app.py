@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from .. import backlog, events, serve, traces
+from .. import backlog, events, quota, serve, traces
 from ..graph import graph_mermaid, worker_mermaid
 from ..projects import load_config
 from ..runner import execute, pending, questions
@@ -80,7 +80,8 @@ def local_origin(request: Request) -> bool:
     return origin is None or origin.startswith(LOCAL_ORIGINS)
 
 
-def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs, merge=traces.merge_pr) -> FastAPI:
+def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs, merge=traces.merge_pr,
+               live_quota=quota.fetch) -> FastAPI:
     from ..cli import open_db
 
     app = FastAPI(title="harness")
@@ -211,7 +212,9 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
 
     @app.get("/usage")
     def usage():
-        return {"summary": events.usage_summary(conn), "rate_limit": events.latest_rate_limit(conn)}
+        live = live_quota() or {}
+        return {"summary": events.usage_summary(conn),
+                "rate_limit": live.get("five_hour") or events.latest_rate_limit(conn), "seven_day": live.get("seven_day")}
 
     @app.get("/scenarios")
     def list_scenarios():
