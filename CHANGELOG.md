@@ -54,3 +54,4 @@
 ## [2026-10-09] - Dashboard: kvóta subscription ukazuje stav i bez % (SDK hlásí utilization jen u varování)
 ## [2026-10-09] - Ceny: odhad u subscription (~/≈) oddělen od skutečně zaplaceného API (billing z apiKeySource)
 ## [2026-10-09] - Živá kvóta subscription (5h + 7 dní) z endpointu /usage Claude Code; serve se jí řídí, při chybě záloha na SDK
+## [2026-10-09] - Harness upravuje sám sebe: discover zapnutý, allowed s ! výjimkami (guard/sdk/quota/projects.yaml), reflexe navrhuje i změny kódu
