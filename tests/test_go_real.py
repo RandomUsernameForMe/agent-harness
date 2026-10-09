@@ -52,3 +52,21 @@ def test_rank_sends_candidates_and_limit(monkeypatch):
     c = calls[0]
     assert c["tools"] == [] and c["max_turns"] == 1 and c["model"] == "opus"
     assert "at most 3 tasks" in c["prompt"] and '"id": "a"' in c["prompt"] and "{nebezpečné}" in c["prompt"]
+
+
+def test_rank_gets_owner_history(monkeypatch):
+    calls = []
+    monkeypatch.setattr(real, "run_agent", fake_agent(calls))
+    real.real_rank([], 3, {}, {}, history_of=lambda: {"demo": {"zamítnuto": 4}})
+    assert '{"demo": {"zamítnuto": 4}}' in calls[0]["prompt"]
+
+
+def test_reflect_sends_feedback_and_known_lessons(monkeypatch):
+    calls = []
+    monkeypatch.setattr(real, "run_agent", fake_agent(calls, '[{"project": "demo", "text": "L"}]'))
+    items = [{"key": "rejected:d-1", "project": "demo", "task": "d-1", "kind": "rejected", "text": "Testy {lib}"}]
+    text, agent = real.real_reflect(items, [{"project": "demo", "text": "stará lekce", "status": "retired"}])
+    assert text == '[{"project": "demo", "text": "L"}]' and agent["usage"][0]["node"] == "reflect"
+    c = calls[0]
+    assert c["tools"] == [] and c["max_turns"] == 1 and c["model"] == "opus"
+    assert '"key": "rejected:d-1"' in c["prompt"] and "Testy {lib}" in c["prompt"] and "stará lekce" in c["prompt"]

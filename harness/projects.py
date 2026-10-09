@@ -20,6 +20,7 @@ class Project:
     max_attempts: int
     max_diff_lines: int
     weight: int = 0
+    discover: bool = True  # false: `go` discover and the TODO scan skip it (tasks only from reflection / by hand)
 
 
 @dataclass(frozen=True)
@@ -90,4 +91,5 @@ def _project(name: str, spec: dict, defaults: dict, root: Path) -> Project:
         max_attempts=spec.get("max_attempts", defaults.get("max_attempts", 3)),
         max_diff_lines=spec.get("max_diff_lines", defaults.get("max_diff_lines", 800)),
         weight=spec.get("weight", 0),
+        discover=spec.get("discover", True),
     )

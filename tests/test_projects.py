@@ -90,3 +90,13 @@ def test_serve_window_parsed(tmp_path):
 def test_serve_bad_window_raises(tmp_path, window):
     with pytest.raises(ValueError, match="serve.window"):
         load_config(write(tmp_path, f'serve: {{window: "{window}"}}\nprojects: {{}}\n'))
+
+
+def test_harness_project_may_only_touch_its_prompts():
+    from harness.guard import check_diff
+    cfg = load_config(Path(__file__).parent.parent / "projects.yaml")
+    h = cfg.projects["harness"]
+    assert h.discover is False and all(p.discover for n, p in cfg.projects.items() if n != "harness")
+    assert check_diff(["harness/prompts/plan.md", "CHANGELOG.md"], 10, h.allowed, h.max_diff_lines) is None
+    for path in ("harness/guard.py", "projects.yaml", "harness/sdk.py", "tests/test_guard.py"):
+        assert check_diff([path], 10, h.allowed, h.max_diff_lines) == f"forbidden paths: {path}"

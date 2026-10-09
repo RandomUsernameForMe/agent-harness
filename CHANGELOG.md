@@ -47,3 +47,4 @@
 ## [2026-10-09] - Desktop dashboard v serve: projekty, PR, návrhy, kvóta, spouštění run/go a schválení plánu
 ## [2026-10-09] - Desktop dashboard: plné pozadí místo dekorativního gradientu
 ## [2026-10-09] - Projekt linkedin v projects.yaml (verify ověřeno v čerstvém worktree z origin/main)
+## [2026-10-09] - Fáze 5: reflexe zpětné vazby → lekce (LangGraph Store, schvaluje vlastník) v promptech, důvod zamítnutí, harness jako projekt jen pro vlastní prompty

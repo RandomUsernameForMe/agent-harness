@@ -84,6 +84,7 @@
   <div class="col">
     <section><h2>Kvóta subscription</h2><div id="quota" class="muted">bez dat — žádný běh zatím nenahlásil využití</div></section>
     <section class="chart"><h2>Tokeny po dnech (14 dní)</h2><div id="chart"></div><div id="cost" class="muted"></div></section>
+    <section id="lessonsBox" hidden><h2>Lekce z reflexe</h2><div id="lessons"></div></section>
   </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -91,7 +92,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-let serveOn = false, questionIds = "", planId = "", projectsKey = "";
+let serveOn = false, questionIds = "", planId = "", projectsKey = "", lessonsKey = "";
 
 function toast(text) {
   $("toast").textContent = text;
@@ -178,7 +179,37 @@ function renderProjects(projects, proposals) {
         <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}</div>
       ${prs}${proposalList(proposals.filter(t => t.project === p.name))}</section>`;
   }).join("");
-  $("projects").querySelectorAll("[data-do]").forEach(b => b.onclick = () => act(b.dataset.do, {task: b.dataset.task}));
+  $("projects").querySelectorAll("[data-do=approve]").forEach(b => b.onclick = () => act("approve", {task: b.dataset.task}));
+  $("projects").querySelectorAll("[data-do=reject]").forEach(b => b.onclick = () => askReason(b));
+}
+
+function askReason(button) {
+  // optional reason: the reflection learns from it (phase 5)
+  const li = button.closest("li");
+  li.innerHTML = `<form class="row" style="flex:1"><input type="text" aria-label="Proč zamítnout (nepovinné)"
+      placeholder="proč? (nepovinné)"><button class="primary">Zamítnout</button><button type="button">Zpět</button></form>`;
+  const input = li.querySelector("input");
+  input.focus();
+  li.querySelector("form").onsubmit = e => { e.preventDefault(); act("reject", {task: button.dataset.task, reason: input.value}); };
+  li.querySelector("button[type=button]").onclick = () => { projectsKey = ""; refresh(); };
+}
+
+function renderLessons(list) {
+  const key = JSON.stringify([list, serveOn]);
+  if (key === lessonsKey) return;
+  lessonsKey = key;
+  const proposed = list.filter(l => l.status === "proposed"), active = list.filter(l => l.status === "active");
+  $("lessonsBox").hidden = !list.length;
+  const row = (l, buttons) => `<li class="prop"><span class="tag">${esc(l.project)}</span>
+      <span style="flex:1;min-width:0">${esc(l.text)}</span>${buttons(l)}</li>`;
+  const btn = (l, approve, label, title) => `<button data-lesson="${esc(l.id)}" data-project="${esc(l.project)}"
+      data-approve="${approve}" title="${title}" aria-label="${title}" ${serveOn ? "" : "disabled"}>${label}</button>`;
+  $("lessons").innerHTML = (proposed.length ? `<h4>Ke schválení</h4><ul>${proposed.map(l =>
+        row(l, l => btn(l, 1, "✅", "Platí") + btn(l, 0, "❌", "Zahodit"))).join("")}</ul>` : "")
+    + (active.length ? `<details><summary>Aktivní lekce (${active.length})</summary><ul>${active.map(l =>
+        row(l, l => btn(l, 0, "vyřadit", "Vyřadit"))).join("")}</ul></details>` : "");
+  $("lessons").querySelectorAll("[data-lesson]").forEach(b => b.onclick = () =>
+    act("lesson", {project: b.dataset.project, id: b.dataset.lesson, approve: b.dataset.approve === "1"}));
 }
 
 function renderUsage(u) {
@@ -213,6 +244,7 @@ async function refresh() {
     renderPlan(o.serve && o.serve.plan);
     renderQuestions(o.serve ? o.serve.questions : []);
     renderProjects(o.projects, o.proposals);
+    renderLessons(o.serve ? o.serve.lessons : []);
   } catch (e) { $("status").innerHTML = `<span style="color:var(--bad)">dashboard nedostupný</span>`; }
 }
 async function refreshUsage() {

@@ -69,7 +69,7 @@ class RateLimited(Exception):
 
 def fan_out(state: State) -> list[Send] | str:
     base = {"run_id": state["run_id"], "simulated": state.get("simulated", False), "usage": []}
-    return [Send("worker", base | item) for item in state.get("batch") or []] or END
+    return [Send("worker", base | item) for item in state.get("batch") or []] or "reflect"
 
 
 def start(state: State) -> list[Send] | str:
@@ -79,7 +79,7 @@ def start(state: State) -> list[Send] | str:
 
 
 def after_approve(state: State) -> str:
-    return "pick_tasks" if state.get("planned") else END
+    return "pick_tasks" if state.get("planned") else "reflect"
 
 
 def after_plan(state: WorkerState) -> str:
@@ -166,7 +166,7 @@ def _worker_node(sub) -> Callable:
     return worker
 
 
-def build_graph(nodes: dict[str, Callable], checkpointer=None, step: bool = False):
+def build_graph(nodes: dict[str, Callable], checkpointer=None, step: bool = False, store=None):
     missing = set(NODES) - set(nodes)
     if missing:
         raise ValueError(f"missing nodes: {sorted(missing)}")
@@ -176,20 +176,22 @@ def build_graph(nodes: dict[str, Callable], checkpointer=None, step: bool = Fals
     g.add_node("approve", nodes["approve"])  # not _pausing: its interrupt must propagate
     g.add_node("pick_tasks", nodes["pick_tasks"])
     g.add_node("worker", _worker_node(build_worker(nodes, step)))
+    g.add_node("reflect", _pausing(nodes.get("reflect", lambda s: {})))  # optional: older callers have none
     g.add_conditional_edges(START, start, ["discover", "prioritize", "pick_tasks"])
     g.add_edge("discover", "prioritize")
     g.add_edge("prioritize", "approve")
-    g.add_conditional_edges("approve", after_approve, ["pick_tasks", END])
-    g.add_conditional_edges("pick_tasks", fan_out, ["worker", END])
+    g.add_conditional_edges("approve", after_approve, ["pick_tasks", "reflect"])
+    g.add_conditional_edges("pick_tasks", fan_out, ["worker", "reflect"])
     g.add_edge("worker", "pick_tasks")
-    return g.compile(checkpointer=checkpointer,
+    g.add_edge("reflect", END)
+    return g.compile(checkpointer=checkpointer, store=store,
                      interrupt_before=["discover", "prioritize", "pick_tasks"] if step else None)
 
 
 def initial_state(run_id: str, cfg: Config, simulated: bool, discover: bool = False) -> dict:
     return {"run_id": run_id, "simulated": simulated, "max_tasks": cfg.max_tasks_per_run,
             "max_parallel": cfg.max_parallel, "quota_threshold": cfg.quota_threshold, "tasks_done": 0, "usage": [],
-            "discover": discover, "projects": list(cfg.projects)}
+            "discover": discover, "projects": [n for n, p in cfg.projects.items() if p.discover]}
 
 
 def _noop_nodes() -> dict[str, Callable]:

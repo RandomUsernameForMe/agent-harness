@@ -15,13 +15,19 @@ class Task:
     title: str
     status: str
     description: str
+    note: str = ""  # suffix of a finished task: PR url, failure, rejection reason
+
+
+def _split(rest: str, status: str) -> tuple[str, str]:
+    # only finished tasks carry a " → url" / " — note" suffix; an open/proposed title may contain "—" itself
+    if status in " ~":
+        return rest.strip(), ""
+    title, note = (SUFFIX_RE.split(rest, maxsplit=1) + [""])[:2]
+    return title.strip(), note.strip()
 
 
 def _title(rest: str, status: str) -> str:
-    # only finished tasks carry a " → url" / " — note" suffix; an open/proposed title may contain "—" itself
-    if status in " ~":
-        return rest.strip()
-    return SUFFIX_RE.split(rest, maxsplit=1)[0].strip()
+    return _split(rest, status)[0]
 
 
 def parse(text: str) -> list[Task]:
@@ -31,8 +37,9 @@ def parse(text: str) -> list[Task]:
         if m := HEADER_RE.match(line):
             project, current = m["project"], None
         elif (m := TASK_RE.match(line)) and project:
+            title, note = _split(m["rest"], m["status"])
             current = {"id": m["id"], "project": project, "priority": int(m["prio"]),
-                       "title": _title(m["rest"], m["status"]), "status": m["status"], "description": []}
+                       "title": title, "status": m["status"], "description": [], "note": note}
             raw.append(current)
         elif current is not None and line.startswith("  ") and line.strip():
             current["description"].append(line.strip())

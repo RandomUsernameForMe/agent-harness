@@ -3,6 +3,7 @@ You are the orchestrator of an automated coding harness. Choose and order at mos
 Weigh:
 - the owner's focus (how often each project appears in their recent notes): {focus}
 - project weights: {weights}
+- how the owner treated each project's tasks so far (approved and done, rejected, failed, waiting): {history}
 - explicit backlog priority (1 = highest; new proposals are 2)
 - value for the owner against risk; prefer tasks a worker can finish and verify without asking the owner
 - workers run in parallel, one task per project at a time — spread across projects when value is similar

@@ -1,0 +1,14 @@
+name: Opakované selhání stejného typu → návrh změny promptu harnessu
+tasks:
+  - {project: demo, id: sim-01, title: "Úkol A", priority: P1}
+  - {project: demo, id: sim-02, title: "Úkol B", priority: P1}
+nodes:
+  verify: {fail: "npm test: plán nepoužil testovací příkaz z CLAUDE.md projektu"}
+  reflect:
+    lessons:
+      - scope: prompt
+        title: "Plán musí převzít testovací příkaz z CLAUDE.md projektu"
+        text: "Dva úkoly za sebou selhaly ve verify, protože plán neuvedl testovací příkaz z CLAUDE.md. Doplnit do plan.md pokyn přečíst CLAUDE.md a převzít z něj příkazy pro testy."
+        source: ["failure:sim-01", "failure:sim-02"]
+max_attempts: 1
+delay: 0.3

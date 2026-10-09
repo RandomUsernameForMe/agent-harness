@@ -30,7 +30,7 @@ def test_happy_path(tmp_path):
     assert status == "done"
     assert statuses(sim) == {"sim-01": "x"}
     assert started(conn, sim) == ["pick_tasks", "preflight", "make_worktree", "plan", "setup",
-                                  "implement", "verify", "open_pr", "report", "pick_tasks"]
+                                  "implement", "verify", "open_pr", "report", "pick_tasks", "reflect"]
     assert "https://example.invalid/sim/sim-01" in sim.backlog_path.read_text(encoding="utf-8")
 
 
@@ -121,7 +121,7 @@ def test_parallel_projects_run_concurrently(tmp_path):
     # the second alpha task waits for the next batch
     assert a2[0]["id"] > max(a1[-1]["id"], b1[-1]["id"])
     assert [e["node"] for e in a1 if e["kind"] == "start"].count("implement") == 2
-    assert all(e["worker"] for e in events.events_after(conn, 0, sim.run_id) if e["node"] not in (None, "pick_tasks"))
+    assert all(e["worker"] for e in events.events_after(conn, 0, sim.run_id) if e["node"] not in (None, "pick_tasks", "reflect"))
 
 
 def test_parallel_usage_reaches_parent_state(tmp_path):
@@ -275,3 +275,29 @@ def test_go_discover_events_carry_project(tmp_path):
     sim, conn, _ = run("go-happy", tmp_path)
     evs = [(e["kind"], e["worker"]) for e in events.events_after(conn, 0, sim.run_id) if e["node"] == "discover"]
     assert sorted(evs) == [("end", "demo"), ("end", "web"), ("start", "demo"), ("start", "web")]
+
+
+def test_rejected_proposal_becomes_lesson_in_next_discover_prompt(tmp_path):
+    from harness import lessons
+    from harness.runner import run_config
+    sim, conn, status = run("reflect-lesson", tmp_path)
+    assert status == "done" and sim.script.lessons_seen == {"demo": []}
+    [proposed] = lessons.lessons(sim.store, "demo")
+    assert proposed["status"] == "proposed" and proposed["source"] == ["rejected:sim-01"]
+    assert sim.script.calls["reflect"] == 1
+    assert lessons.decide(sim.store, "demo", proposed["id"], "active") == "lekce platí"
+    execute(sim.app, sim.inputs | {"run_id": "second"}, run_config("second"), conn, simulated=True)
+    assert sim.script.lessons_seen["demo"] == ["Nenavrhuj unit testy bez souvislosti s konkrétním bugem."]
+    assert sim.script.calls["reflect"] == 1  # feedback already consumed: no second model call
+
+
+def test_repeated_failure_proposes_harness_prompt_change(tmp_path):
+    from harness.runner import run_config
+    sim, conn, status = run("reflect-prompt", tmp_path)
+    st = statuses(sim)
+    [harness_id] = [k for k in st if k.startswith("harness-ai-")]
+    assert st == {"sim-01": "!", "sim-02": "!", harness_id: "~"}
+    text = sim.backlog_path.read_bytes().decode("utf-8")
+    assert "## harness" in text and "Zdroj: failure:sim-01, failure:sim-02" in text
+    execute(sim.app, sim.inputs | {"run_id": "again"}, run_config("again"), conn, simulated=True)
+    assert sim.script.calls["reflect"] == 1

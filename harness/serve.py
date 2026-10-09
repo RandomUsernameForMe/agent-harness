@@ -12,7 +12,7 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Callable
 
-from . import backlog, events
+from . import backlog, events, lessons
 from .nodes.common import edit_backlog
 from .priority import config_focus, rank
 from .projects import Config
@@ -29,7 +29,7 @@ HELP = ("Příkazy:\n/status — stav démona\n/queue — fronta úkolů\n/propo
 
 def default_state(now: datetime) -> dict:
     return {"paused": False, "run": None, "seq": 0, "offset": 0, "asked": {}, "answers": {}, "approval": None,
-            "proposals_sent": [],
+            "proposals_sent": [], "lessons_sent": [], "rejected_msgs": {},
             "last_scan": None, "last_digest": now.date().isoformat(), "digest_since": now.timestamp()}
 
 
@@ -76,6 +76,7 @@ class Ctx:
     result: tuple | None = None  # (run_id, status | Exception)
     last_error: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)  # main loop vs dashboard requests
+    store: object = None  # lessons (phase 5); None = feature off
 
 
 def say(ctx: Ctx, text: str, buttons: Buttons | None = None) -> int | None:
@@ -210,6 +211,8 @@ def _sync_questions(ctx: Ctx) -> None:
 def _answer(ctx: Ctx, msg: dict, text: str) -> str:
     asked, answers = ctx.state["asked"], ctx.state["answers"]
     reply_id = (msg.get("reply_to_message") or {}).get("message_id")
+    if (task_id := ctx.state["rejected_msgs"].pop(str(reply_id), None)) is not None:
+        return _reason(ctx, task_id, text)
     iid = next((i for i, a in asked.items() if a["message_id"] == reply_id), None)
     if iid is None and reply_id is None:
         unanswered = [i for i, a in asked.items() if i not in answers and not a.get("answered")]
@@ -238,7 +241,12 @@ def _notify_proposals(ctx: Ctx) -> None:
         sent.append(t.id)
 
 
-def _decide(ctx: Ctx, task_id: str, approve: bool) -> str:
+def _rejected(reason: str) -> str:
+    reason = " ".join(reason.split())[:300]
+    return f" — zamítnuto: {reason}" if reason else " — zamítnuto"
+
+
+def _decide(ctx: Ctx, task_id: str, approve: bool, reason: str = "") -> str:
     note = []
 
     def change(text: str) -> str:
@@ -247,9 +255,41 @@ def _decide(ctx: Ctx, task_id: str, approve: bool) -> str:
             note.append("už vyřízeno")
             return text
         note.append("schváleno → fronta" if approve else "zamítnuto")
-        return backlog.set_status(text, task_id, " " if approve else "-", "" if approve else " — zamítnuto")
+        return backlog.set_status(text, task_id, " " if approve else "-", "" if approve else _rejected(reason))
     edit_backlog(ctx.backlog_path, change)
     return note[0]
+
+
+def _reason(ctx: Ctx, task_id: str, reason: str) -> str:
+    """A reason sent after the rejection (Telegram reply); the reflection reads it from the task's note."""
+    def change(text: str) -> str:
+        t = next((t for t in backlog.parse(text) if t.id == task_id), None)
+        return backlog.set_status(text, task_id, "-", _rejected(reason)) if t and t.status == "-" else text
+    edit_backlog(ctx.backlog_path, change)
+    return f"📝 {task_id}: důvod uložen, reflexe se z něj poučí."
+
+
+# --- lessons ----------------------------------------------------------------------------------------------
+
+def _notify_lessons(ctx: Ctx) -> None:
+    if ctx.store is None:
+        return
+    sent = ctx.state["lessons_sent"]
+    for x in lessons.lessons(ctx.store, status="proposed"):
+        ref = f"{x['project']}/{x['id']}"
+        if ref in sent:
+            continue
+        if say(ctx, f"🧠 Lekce [{x['project']}]\n{x['text']}",
+               [[("✅ Platí", f"la:{ref}"), ("❌ Zahodit", f"lr:{ref}")]]) is None:
+            return
+        sent.append(ref)
+
+
+def _decide_lesson(ctx: Ctx, ref: str, approve: bool) -> str:
+    if ctx.store is None:
+        return "lekce nejsou k dispozici"
+    project, _, key = ref.partition("/")
+    return lessons.decide(ctx.store, project, key, "active" if approve else "retired")
 
 
 # --- digest -----------------------------------------------------------------------------------------------
@@ -374,6 +414,13 @@ def _callback(ctx: Ctx, cb: dict) -> None:
             ctx.state["answers"][key] = ""
     elif kind in ("ap", "rj"):
         note = _decide(ctx, key, kind == "ap")
+        if kind == "rj" and note == "zamítnuto":
+            note += " (důvod můžeš poslat reply na tuto zprávu)"
+            rejected = ctx.state["rejected_msgs"]
+            rejected[str(cb["message"]["message_id"])] = key
+            ctx.state["rejected_msgs"] = dict(list(rejected.items())[-50:])
+    elif kind in ("la", "lr"):
+        note = _decide_lesson(ctx, key, kind == "la")
     else:
         note = "neznámá akce"
     _quiet(ctx.bot.ack, cb["id"], note)
@@ -418,7 +465,8 @@ def snapshot(ctx: Ctx) -> dict:
                 "run": run and {**run, "status": "running" if ctx.busy else run["status"]},
                 "questions": [q | {"answered": q["id"] in ctx.state["answers"]}
                               for q in (questions(ctx.app, config) if config else [])],
-                "plan": plans[0] if plans else None}
+                "plan": plans[0] if plans else None,
+                "lessons": [x for x in lessons.lessons(ctx.store) if x["status"] != "retired"]}
 
 
 def _approve_plan(ctx: Ctx, keep) -> str:
@@ -448,7 +496,9 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
         if action in ("run", "go"):
             reply = _start_new(ctx, manual=True, discover=action == "go")
         elif action in ("approve", "reject"):
-            reply = _decide(ctx, str(data.get("task")), action == "approve")
+            reply = _decide(ctx, str(data.get("task")), action == "approve", str(data.get("reason") or ""))
+        elif action == "lesson":
+            reply = _decide_lesson(ctx, f"{data.get('project')}/{data.get('id')}", bool(data.get("approve")))
         elif action == "plan":
             reply = _approve_plan(ctx, data.get("keep"))
         elif action == "answer":
@@ -484,6 +534,7 @@ def tick(ctx: Ctx, updates: list[dict]) -> None:
         if not ctx.busy:
             _sync_questions(ctx)
         _notify_proposals(ctx)
+        _notify_lessons(ctx)
         _maybe_digest(ctx)
     finally:  # the offset too: a handled update must not be delivered again after a failure
         if ctx.state_path:

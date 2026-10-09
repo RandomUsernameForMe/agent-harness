@@ -123,6 +123,31 @@ def pr_state(url: str) -> str | None:
     return out.stdout.strip().lower() or None
 
 
+PEOPLE = ("OWNER", "MEMBER", "COLLABORATOR")  # not bots like vercel, which comment on every PR
+MAX_REVIEW = 1500
+
+
+def review_text(data: dict) -> str:
+    bodies = [x.get("body", "").strip() for x in (data.get("reviews") or []) + (data.get("comments") or [])
+              if x.get("authorAssociation") in PEOPLE]
+    return "\n".join(b for b in bodies if b)[:MAX_REVIEW]
+
+
+def pr_feedback(url: str) -> tuple[str, str] | None:
+    """(state, review comments of people) of a PR; None when gh fails."""
+    try:
+        out = subprocess.run(["gh", "pr", "view", url, "--json", "state,reviews,comments"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"gh pr view {url}: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    if out.returncode != 0:
+        print(f"gh pr view {url}: {out.stderr.strip()}", file=sys.stderr)
+        return None
+    data = json.loads(out.stdout or "{}")
+    return str(data.get("state", "")).lower(), review_text(data)
+
+
 def open_prs(repo_dir) -> list[dict] | None:
     """Open PRs of the repo checked out in repo_dir; None when gh fails."""
     try:
