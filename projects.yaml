@@ -31,3 +31,8 @@ projects:
     # -X utf8: test_vault padá na Windows cp1252; bot běží na Linuxu (GitHub Actions)
     verify: ['..\_venv\Scripts\python -X utf8 -m pytest bot -q', "npm test --prefix web"]
     allowed: ["bot/**", "web/**", "scripts/**", "CHANGELOG.md"]
+  linkedin:
+    path: ../linkedin
+    base: main
+    setup: ["npm ci"]
+    verify: ["node --test editor/*.test.ts", "npx tsc --noEmit"]
