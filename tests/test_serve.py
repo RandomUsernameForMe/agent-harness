@@ -238,6 +238,13 @@ def test_digest_text_reports_failures_and_unclear(tmp_path):
     assert "❌ sim-01 — failed: tsc: 3 type errors" in text
 
 
+def test_digest_text_separates_estimate_from_paid(tmp_path):
+    conn = events.connect(tmp_path / "h.db")
+    u = {"node": "plan", "input_tokens": 1, "output_tokens": 1, "cost_usd": 1.0}
+    events.log(conn, "r1", "end", node="plan", usage=[u, u | {"billing": "api", "cost_usd": 0.25}])
+    assert "Tokeny: 4, ~$1.00 odhad (subscription) + $0.25 zaplaceno (API)" in serve.digest_text(conn, 0, "")
+
+
 def test_rate_limit_resumes_only_after_reset(tmp_path):
     env = Env(tmp_path, "rate-limit-pause-resume")
     env.tick()

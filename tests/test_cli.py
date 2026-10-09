@@ -136,8 +136,10 @@ def test_stats_syncs_outcomes_and_prints_costs(tmp_path, capsys, monkeypatch):
             "cache_write_tokens": 0, "status": "ok"}
     traces.record(conn, base | {"worker": "akano3", "node": "discover", "cost_usd": 0.4}, [])
     traces.record(conn, base | {"worker": "ak-01", "node": "implement", "cost_usd": 0.6}, [])
+    traces.record(conn, base | {"worker": "ak-01", "node": "implement", "cost_usd": 0.2, "billing": "api"}, [])
     monkeypatch.setattr(traces, "pr_state", lambda url: "merged")
     assert main(["--home", str(tmp_path), "stats"]) == 0
     out = capsys.readouterr().out
-    assert "ak-01" in out and "merged" in out and "0.60" in out and "https://gh/pr/1" in out
-    assert "go-1 discover" in out and "0.40" in out and "celkem 1.00 $" in out
+    assert "ak-01" in out and "merged" in out and "0.60    0.20" in out and "https://gh/pr/1" in out
+    assert "go-1 discover" in out and "0.40" in out
+    assert "celkem ~$1.00 odhad (subscription) + $0.20 zaplaceno (API)" in out

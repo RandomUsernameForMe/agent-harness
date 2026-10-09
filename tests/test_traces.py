@@ -33,9 +33,26 @@ def test_costs_per_task_and_overhead(tmp_path):
     traces.sync_outcomes(conn, "## akano3\n- [x] P1 ak-01 Testy → https://gh/pr/1\n", lambda url: "merged")
     c = traces.costs(conn)
     assert c["tasks"] == [{"task_id": "ak-01", "project": "akano3", "state": "merged", "pr_url": "https://gh/pr/1",
-                           "attempts": 2, "calls": 3, "cost_usd": 1.0, "tokens": 3 * 1160}]
-    assert c["overhead"] == [{"run_id": "r1", "node": "discover", "calls": 1, "cost_usd": 0.5, "tokens": 1160},
-                             {"run_id": "r1", "node": "prioritize", "calls": 1, "cost_usd": 0.1, "tokens": 1160}]
+                           "attempts": 2, "calls": 3, "cost_usd": 1.0, "paid_usd": 0.0, "tokens": 3 * 1160}]
+    assert c["overhead"] == [{"run_id": "r1", "node": "discover", "calls": 1, "cost_usd": 0.5, "paid_usd": 0.0, "tokens": 1160},
+                             {"run_id": "r1", "node": "prioritize", "calls": 1, "cost_usd": 0.1, "paid_usd": 0.0, "tokens": 1160}]
+
+
+
+def test_costs_split_api_paid_from_subscription_estimate(tmp_path):
+    conn = db(tmp_path)
+    traces.record(conn, call("ak-01", "plan", 0.25, billing="subscription"), [])
+    traces.record(conn, call("ak-01", "implement", 0.5, billing="api"), [])
+    traces.record(conn, call("ak-01", "implement", 0.125), [])  # before billing was recorded = subscription
+    [t] = traces.costs(conn)["tasks"]
+    assert (t["cost_usd"], t["paid_usd"]) == (0.875, 0.5)
+
+
+def test_cost_label():
+    assert traces.cost_label(1.0, 0.0) == "~$1.00 odhad (subscription)"
+    assert traces.cost_label(0.5, 0.5) == "$0.50 zaplaceno (API)"
+    assert traces.cost_label(1.5, 0.5) == "~$1.00 odhad (subscription) + $0.50 zaplaceno (API)"
+    assert traces.cost_label(0, 0) == "$0.00"
 
 
 BACKLOG = """## demo
@@ -74,7 +91,7 @@ def test_costs_lists_outcomes_without_calls(tmp_path):
     traces.sync_outcomes(conn, "## demo\n- [x] P1 d1 Hotový → https://gh/pr/7\n", lambda url: "open")
     assert traces.costs(conn)["tasks"] == [{"task_id": "d1", "project": "demo", "state": "open",
                                            "pr_url": "https://gh/pr/7", "attempts": 0, "calls": 0,
-                                           "cost_usd": 0, "tokens": 0}]
+                                           "cost_usd": 0, "paid_usd": 0, "tokens": 0}]
 
 
 def test_backfill_from_event_usage_once(tmp_path):

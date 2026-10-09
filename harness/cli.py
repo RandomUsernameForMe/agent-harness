@@ -148,14 +148,18 @@ def cmd_stats(args) -> int:
     traces.backfill(conn)
     _sync_outcomes(conn, args.home)
     c = traces.costs(conn)
-    print(f"{'úkol':<28} {'projekt':<14} {'stav':<8} {'pokusy':>6} {'volání':>6} {'tokeny':>10} {'$':>7}  PR")
+    print(f"{'úkol':<28} {'projekt':<14} {'stav':<8} {'pokusy':>6} {'volání':>6} {'tokeny':>10} {'~$ sub':>7} "
+          f"{'$ API':>7}  PR")
     for t in c["tasks"]:
         print(f"{t['task_id']:<28} {t['project'] or '-':<14} {t['state'] or '-':<8} {t['attempts']:>6} "
-              f"{t['calls']:>6} {t['tokens'] or 0:>10} {_money(t['cost_usd']):>7}  {t['pr_url'] or ''}")
+              f"{t['calls']:>6} {t['tokens'] or 0:>10} {_money(t['cost_usd'] - t['paid_usd']):>7} "
+              f"{_money(t['paid_usd']):>7}  {t['pr_url'] or ''}")
     for o in c["overhead"]:
-        print(f"režie {o['run_id']} {o['node']}: {o['calls']}× {o['tokens'] or 0} tokenů {_money(o['cost_usd'])} $")
-    total = sum(r["cost_usd"] or 0 for r in c["tasks"] + c["overhead"])
-    print(f"celkem {_money(total)} $" if c["tasks"] or c["overhead"] else "žádná zaznamenaná volání")
+        print(f"režie {o['run_id']} {o['node']}: {o['calls']}× {o['tokens'] or 0} tokenů "
+              f"{traces.cost_label(o['cost_usd'], o['paid_usd'])}")
+    rows = c["tasks"] + c["overhead"]
+    total, paid = (sum(r[k] or 0 for r in rows) for k in ("cost_usd", "paid_usd"))
+    print(f"celkem {traces.cost_label(total, paid)}" if rows else "žádná zaznamenaná volání")
     return 0
 
 

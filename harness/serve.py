@@ -12,7 +12,7 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Callable
 
-from . import backlog, events, lessons
+from . import backlog, events, lessons, traces
 from .nodes.common import edit_backlog
 from .priority import config_focus, rank
 from .projects import Config
@@ -303,13 +303,14 @@ def _decide_lesson(ctx: Ctx, ref: str, approve: bool) -> str:
 # --- digest -----------------------------------------------------------------------------------------------
 
 def digest_text(conn, since: float, backlog_text: str, simulated: bool = False) -> str:
-    runs, tokens, cost = set(), 0, 0.0
+    runs, tokens, cost, paid = set(), 0, 0.0, 0.0
     tasks: dict[str, dict] = defaultdict(dict)
     for e in events.since(conn, since, simulated):
         runs.add(e["run_id"])
         for u in e["usage"] or []:
             tokens += (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
             cost += u.get("cost_usd") or 0.0
+            paid += (u.get("cost_usd") or 0.0) if u.get("billing") == "api" else 0.0
         if e["worker"] and e["kind"] == "end":
             d = e["delta"] or {}
             tasks[e["worker"]].update({k: d[k] for k in ("outcome", "pr_url", "last_failure") if k in d})
@@ -330,7 +331,7 @@ def digest_text(conn, since: float, backlog_text: str, simulated: bool = False) 
     if not tasks:
         lines.append("Žádné úkoly.")
     open_tasks = backlog.parse(backlog_text)
-    lines.append(f"Tokeny: {tokens}, ${cost:.2f}")
+    lines.append(f"Tokeny: {tokens}, {traces.cost_label(cost, paid)}")
     lines.append(f"Fronta: {sum(t.status == ' ' for t in open_tasks)} · "
                  f"návrhy ke schválení: {sum(t.status == '~' for t in open_tasks)}")
     return "\n".join(lines)

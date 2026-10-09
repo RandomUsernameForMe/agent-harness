@@ -51,3 +51,5 @@
 ## [2026-10-09] - Dashboard se po restartu serve sám přenačte; fáze 5 kritérium 4 ověřeno ostře
 ## [2026-10-09] - Dashboard: výběr projektů pro frontu a go, merge PR (squash) s úklidem větve a worktree, stav CI u PR
 ## [2026-10-09] - Desktop dashboard: živá pipeline běhu, akční karty místo „harness go“, přepínač automatického startu místo Pauzy
+## [2026-10-09] - Dashboard: kvóta subscription ukazuje stav i bez % (SDK hlásí utilization jen u varování)
+## [2026-10-09] - Ceny: odhad u subscription (~/≈) oddělen od skutečně zaplaceného API (billing z apiKeySource)

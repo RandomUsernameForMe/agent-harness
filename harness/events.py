@@ -95,7 +95,7 @@ def usage_summary(conn) -> list[dict]:
     with _lock:
         rows = conn.execute("SELECT ts, usage, simulated FROM events WHERE usage IS NOT NULL").fetchall()
     totals: dict[tuple, dict] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "cache_tokens": 0,
-                                                     "cost_usd": 0.0})
+                                                     "cost_usd": 0.0, "paid_usd": 0.0})
     for r in rows:
         day = time.strftime("%Y-%m-%d", time.localtime(r["ts"]))
         for u in json.loads(r["usage"]):
@@ -104,10 +104,23 @@ def usage_summary(conn) -> list[dict]:
             t["output_tokens"] += u.get("output_tokens") or 0
             t["cache_tokens"] += (u.get("cache_read_tokens") or 0) + (u.get("cache_write_tokens") or 0)
             t["cost_usd"] += u.get("cost_usd") or 0.0
+            if u.get("billing") == "api":  # the rest is a subscription estimate, not money spent
+                t["paid_usd"] += u.get("cost_usd") or 0.0
     return [{"day": d, "node": n, "model": m, "simulated": s, **v} for (d, n, m, s), v in sorted(totals.items())]
 
 
 def latest_rate_limit(conn) -> dict | None:
+    """Newest real quota info. The SDK sends utilization only with allowed_warning, so a later plain `allowed`
+    in the same window inherits the last known one; pause events (only resets_at) are skipped."""
     with _lock:
-        row = conn.execute("SELECT rate_limit FROM events WHERE rate_limit IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
-    return json.loads(row["rate_limit"]) if row else None
+        rows = conn.execute("SELECT rate_limit FROM events WHERE rate_limit IS NOT NULL AND simulated = 0 "
+                            "ORDER BY id DESC LIMIT 50").fetchall()
+    infos = [i for i in (json.loads(r["rate_limit"]) for r in rows) if set(i) != {"resets_at"}]
+    if not infos:
+        return None
+    latest = infos[0]
+    if latest.get("utilization") is None:
+        same = (i["utilization"] for i in infos if i.get("utilization") is not None
+                and (i.get("type"), i.get("resets_at")) == (latest.get("type"), latest.get("resets_at")))
+        latest = {**latest, "utilization": next(same, None)}
+    return latest
