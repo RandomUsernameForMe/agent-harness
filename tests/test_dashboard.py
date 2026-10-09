@@ -170,6 +170,8 @@ def test_overview_reads_projects_yaml_every_request(tmp_path):
     assert [p["name"] for p in body["projects"]] == ["alpha", "beta"]
     assert body["projects"][1]["prs"] is None  # missing checkout: no gh call
     assert len(calls) == 1  # alpha cached
+    assert body["boot"] == client.get("/overview").json()["boot"]
+    assert TestClient(create_app(tmp_path, prs=prs)).get("/overview").json()["boot"] != body["boot"]
 
 
 def test_control_needs_serve_and_local_origin(client):

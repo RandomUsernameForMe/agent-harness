@@ -92,7 +92,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-let serveOn = false, questionIds = "", planId = "", projectsKey = "", lessonsKey = "";
+let serveOn = false, questionIds = "", planId = "", projectsKey = "", lessonsKey = "", boot = null;
 
 function toast(text) {
   $("toast").textContent = text;
@@ -240,6 +240,8 @@ function renderUsage(u) {
 async function refresh() {
   try {
     const o = await (await fetch("/overview")).json();
+    if (boot !== null && o.boot !== boot) return location.reload();  // serve restarted: load the new page
+    boot = o.boot;
     renderStatus(o.serve);
     renderPlan(o.serve && o.serve.plan);
     renderQuestions(o.serve ? o.serve.questions : []);
