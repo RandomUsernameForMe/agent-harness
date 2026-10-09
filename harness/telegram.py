@@ -1,6 +1,7 @@
 """Minimal Telegram Bot API client over stdlib urllib (same approach as secondbrain/bot/telegram.py)."""
 import http.client
 import json
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -51,3 +52,26 @@ class Telegram:
 
     def ack(self, callback_id: str, text: str = "") -> None:
         self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
+
+
+class NoTelegram:
+    """serve without a bot: messages only go to stdout (None under pythonw), control is the dashboard."""
+    chat_id = None
+
+    def __init__(self):
+        self._id = 0
+
+    def updates(self, offset: int, timeout: int) -> list[dict]:
+        time.sleep(timeout)
+        return []
+
+    def send(self, text: str, buttons: Buttons | None = None) -> int:
+        print(text, flush=True)
+        self._id += 1
+        return self._id
+
+    def edit(self, message_id: int, text: str) -> None:
+        pass
+
+    def ack(self, callback_id: str, text: str = "") -> None:
+        pass

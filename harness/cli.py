@@ -21,7 +21,7 @@ from .runner import approvals, execute, pending, questions, run_config
 from .scan import proposal_lines, scan_all
 from .sdk import check_billing
 from .simulate import prepare
-from .telegram import Telegram
+from .telegram import NoTelegram, Telegram
 
 
 def open_db(home: Path):
@@ -169,22 +169,31 @@ def _scan_into(cfg, backlog_path: Path) -> int:
 
 
 def cmd_serve(args) -> int:
+    import uvicorn
+
+    from .dashboard.app import create_app
+    if sys.stdout is None:  # pythonw (autostart without a console window)
+        sys.stdout = sys.stderr = open(args.home / "serve.log", "a", encoding="utf-8", buffering=1)
     token, chat = os.environ.get("HARNESS_TELEGRAM_TOKEN"), os.environ.get("HARNESS_TELEGRAM_CHAT_ID")
     if not token or not chat:
-        print("set HARNESS_TELEGRAM_TOKEN and HARNESS_TELEGRAM_CHAT_ID (see README → serve)", file=sys.stderr)
-        return 2
+        print("HARNESS_TELEGRAM_TOKEN/CHAT_ID not set: dashboard only (see README → serve)", file=sys.stderr)
     cfg = load_config(args.home / "projects.yaml")
     if err := check_billing(cfg.billing, os.environ):
         print(err, file=sys.stderr)
         return 2
     app, backlog_path, conn = _real_app(args.home, cfg)
     state_path = args.home / "serve_state.json"
-    ctx = serve.Ctx(cfg=cfg, bot=Telegram(token, int(chat)), app=app, backlog_path=backlog_path, conn=conn,
+    bot = Telegram(token, int(chat)) if token and chat else NoTelegram()
+    ctx = serve.Ctx(cfg=cfg, bot=bot, app=app, backlog_path=backlog_path, conn=conn,
                     new_inputs=lambda rid: initial_state(rid, cfg, simulated=False),
                     state=serve.load_state(state_path, datetime.now()),
                     spawn=lambda job: threading.Thread(target=job, daemon=True).start(),
                     now=datetime.now, scan=lambda: _scan_into(cfg, backlog_path), state_path=state_path)
-    print(f"harness serve: window {serve.fmt_window(cfg.serve.window)}, Ctrl+C to stop")
+    web = create_app(args.home, control=ctx)
+    threading.Thread(target=uvicorn.run, args=(web,), kwargs={"host": "127.0.0.1", "port": args.port},
+                     daemon=True).start()
+    print(f"harness serve: window {serve.fmt_window(cfg.serve.window)}, dashboard http://127.0.0.1:{args.port}/desktop, "
+          "Ctrl+C to stop")
     serve.say(ctx, "🟢 harness serve běží. /help")
     try:
         serve.loop(ctx)
@@ -267,7 +276,8 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--port", type=int, default=8765)
     sub.add_parser("go")
     sub.add_parser("stats")
-    sub.add_parser("serve")
+    sv = sub.add_parser("serve")
+    sv.add_argument("--port", type=int, default=8765)
     sub.add_parser("prune")
     sub.add_parser("queue")
     sc = sub.add_parser("scan")

@@ -1,4 +1,5 @@
 import shutil
+import time
 from pathlib import Path
 
 from harness import events
@@ -75,10 +76,25 @@ def test_simulate_asks_unclear_question_in_terminal(tmp_path, capsys, monkeypatc
     assert "[x] P1 sim-01" in capsys.readouterr().out
 
 
-def test_serve_needs_telegram_env(tmp_path, monkeypatch, capsys):
+def test_serve_without_telegram_runs_dashboard_only(tmp_path, monkeypatch, capsys):
+    from harness import serve
+    (tmp_path / "projects.yaml").write_text("projects: {}\n", encoding="utf-8")
     monkeypatch.delenv("HARNESS_TELEGRAM_TOKEN", raising=False)
-    assert main(["--home", str(tmp_path), "serve"]) == 2
-    assert "HARNESS_TELEGRAM_TOKEN" in capsys.readouterr().err
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    web, bots = [], []
+    monkeypatch.setattr("uvicorn.run", lambda app, host, port: web.append((host, port)))
+
+    def stop(ctx):
+        bots.append(ctx.bot)
+        raise KeyboardInterrupt
+    monkeypatch.setattr(serve, "loop", stop)
+    assert main(["--home", str(tmp_path), "serve", "--port", "9999"]) == 0
+    assert "dashboard only" in capsys.readouterr().err
+    assert bots[0].chat_id is None and bots[0].send("x") == 2  # 1 = startup greeting
+    deadline = time.time() + 5
+    while not web and time.time() < deadline:
+        time.sleep(0.01)
+    assert web == [("127.0.0.1", 9999)]
 
 
 def test_serve_starts_and_stops_cleanly(tmp_path, monkeypatch, capsys):
@@ -87,6 +103,7 @@ def test_serve_starts_and_stops_cleanly(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HARNESS_TELEGRAM_TOKEN", "T")
     monkeypatch.setenv("HARNESS_TELEGRAM_CHAT_ID", "42")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr("uvicorn.run", lambda app, host, port: None)
     sent = []
     monkeypatch.setattr("harness.telegram.Telegram.send", lambda self, text, buttons=None: sent.append((self.chat_id, text)) or 1)
 

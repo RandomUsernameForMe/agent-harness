@@ -51,9 +51,21 @@ Nastavení:
 1. Přes [@BotFather](https://t.me/BotFather) založ **nový** bot (`/newbot`). Token secondbrain bota nepoužívej, dva pollery na jednom tokenu si navzájem kradou zprávy.
 2. Napiš botovi a z `https://api.telegram.org/bot<TOKEN>/getUpdates` zjisti `chat.id`.
 3. Nastav proměnné prostředí `HARNESS_TELEGRAM_TOKEN` a `HARNESS_TELEGRAM_CHAT_ID`, například `setx HARNESS_TELEGRAM_TOKEN ...`.
-4. Pro autostart přidej v Task Scheduleru úlohu „Při přihlášení“ → `C:\Users\TGJ\Projects\harness\.venv\Scripts\harness.exe serve` se „Spustit v“ = složka harnessu.
+4. Pro autostart přidej v Task Scheduleru úlohu „Při přihlášení“ → `C:\Users\TGJ\Projects\harness\.venv\Scripts\pythonw.exe -m harness.cli serve` se „Spustit v“ = složka harnessu (bez okna konzole, log jde do `serve.log`).
 
 Stav démona se ukládá do `serve_state.json` (je v gitignore).
+
+### Dashboard na ploše
+
+`serve` spouští i dashboard: `http://127.0.0.1:8765/desktop` (`--port` ho změní). Bez `HARNESS_TELEGRAM_*` běží serve jen s dashboardem. Stránka ukazuje:
+- projekty z `projects.yaml`, které se čtou při každém načtení, takže nový projekt se ukáže bez restartu (běhy na něm ale potřebují restart serve),
+- otevřené PR přes `gh` (cache 5 min),
+- návrhy `[~]` s ✅/❌,
+- kvótu subscription a tokeny a cenu po dnech.
+
+Tlačítka spustí frontu (`run`) nebo `harness go` a plán z `go` se tam i schvaluje. Pozastavují automatiku a odpovídají na dotazy. Akce jdou přes hlavní smyčku serve, takže nikdy neběží dva běhy naráz.
+
+Tapeta: [Lively Wallpaper](https://github.com/rocksdanister/lively) (`winget install rocksdanister.LivelyWallpaper`), tapeta typu URL na `/desktop`. Kliká se na odkryté ploše (Win+D). Psaní odpovědí vyžaduje v Lively nastavení „Input → Mouse & Keyboard“.
 
 Subscription: `ANTHROPIC_API_KEY` nesmí být nastavený. Izolaci workerů ověří `.venv/Scripts/python scripts/check_isolation.py`.
 

@@ -44,3 +44,4 @@
 ## [2026-10-08] - Dashboard: výraznější hierarchie nadpisů (h1 20 px, h2 15 px)
 ## [2026-10-08] - Ostrý běh s trace: draft PR secondbrain#1 (0,32 $, 2 pokusy — první zablokoval guard na CHANGELOG.md mimo allowed)
 ## [2026-10-08] - secondbrain: CHANGELOG.md v allowed (worker ho podle konvence projektu upravuje)
+## [2026-10-09] - Desktop dashboard v serve: projekty, PR, návrhy, kvóta, spouštění run/go a schválení plánu
