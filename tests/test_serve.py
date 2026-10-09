@@ -467,3 +467,21 @@ def test_dashboard_reject_with_reason(tmp_path):
     assert serve.act(env.ctx, "reject", {"task": "p-1", "reason": "  mimo\n fokus "}) == "zamítnuto"
     [p1] = [t for t in parse(env.sim.backlog_path.read_bytes().decode("utf-8")) if t.id == "p-1"]
     assert p1.note == "zamítnuto: mimo fokus"
+
+
+def test_dashboard_run_only_selected_projects(tmp_path):
+    env = Env(tmp_path, "parallel-projects", now=NOON)
+    with pytest.raises(ValueError):
+        serve.act(env.ctx, "run", {"projects": ["nope"]})
+    with pytest.raises(ValueError):
+        serve.act(env.ctx, "run", {"projects": []})
+    assert "Spouštím run-" in serve.act(env.ctx, "run", {"projects": ["beta"]})
+    assert env.statuses() == {"sim-a1": " ", "sim-b1": "x", "sim-a2": " "}
+    assert serve.act(env.ctx, "run", {"projects": ["beta"]}) == "Fronta je prázdná."
+
+
+def test_dashboard_go_only_selected_projects(tmp_path):
+    env = Env(tmp_path, "go-happy", now=NOON)
+    serve.act(env.ctx, "go", {"projects": ["web"]})
+    plan = serve.snapshot(env.ctx)["plan"]["plan"]
+    assert plan and {p["project"] for p in plan} == {"web"}

@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Callable
 
 from . import backlog
@@ -151,15 +152,60 @@ def pr_feedback(url: str) -> tuple[str, str] | None:
 def open_prs(repo_dir) -> list[dict] | None:
     """Open PRs of the repo checked out in repo_dir; None when gh fails."""
     try:
-        out = subprocess.run(["gh", "pr", "list", "--state", "open", "--json", "number,title,url,isDraft,createdAt"],
-                             cwd=repo_dir, capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
+        out = _gh(["pr", "list", "--state", "open", "--json",
+                   "number,title,url,isDraft,createdAt,mergeable,statusCheckRollup"], repo_dir)
     except (OSError, subprocess.TimeoutExpired) as e:
         print(f"gh pr list in {repo_dir}: {type(e).__name__}: {e}", file=sys.stderr)
         return None
     if out.returncode != 0:
         print(f"gh pr list in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
         return None
-    return json.loads(out.stdout or "[]")
+    return [pr | {"ci": ci_state(pr.pop("statusCheckRollup", None) or [])} for pr in json.loads(out.stdout or "[]")]
+
+
+def _gh(args: list[str], cwd) -> subprocess.CompletedProcess:
+    return subprocess.run(["gh", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
+
+
+def ci_state(checks: list[dict]) -> str | None:
+    """gh statusCheckRollup → "fail" | "pending" | "ok"; None without checks."""
+    values = {c.get("conclusion") or c.get("state") or "PENDING" for c in checks}
+    if values & {"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}:
+        return "fail"
+    if values - {"SUCCESS", "NEUTRAL", "SKIPPED"}:
+        return "pending"
+    return "ok" if checks else None
+
+
+def _must(out: subprocess.CompletedProcess) -> str:
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr.strip() or out.stdout.strip() or f"exit {out.returncode}")
+    return out.stdout
+
+
+def _drop_branch(repo_dir, branch: str) -> None:
+    """After a merge: remove the harness worktree of the branch, the local and the remote branch. Best effort."""
+    listing = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=repo_dir, capture_output=True,
+                             text=True, encoding="utf-8").stdout
+    paths = [b.splitlines()[0].removeprefix("worktree ") for b in listing.split("\n\n")
+             if f"branch refs/heads/{branch}" in b.splitlines()]
+    steps = [["worktree", "remove", "--force", p] for p in paths if ".harness-worktrees" in Path(p).parts]
+    for args in steps + [["branch", "-D", branch], ["push", "-q", "origin", "--delete", branch]]:
+        out = subprocess.run(["git", *args], cwd=repo_dir, capture_output=True, text=True, encoding="utf-8")
+        if out.returncode != 0:
+            print(f"git {' '.join(args)} in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
+
+
+def merge_pr(repo_dir, number: int) -> str:
+    """Squash-merge an open PR (a draft is marked ready first). RuntimeError carries gh's message."""
+    pr = json.loads(_must(_gh(["pr", "view", str(number), "--json", "state,isDraft,headRefName"], repo_dir)))
+    if pr["state"] != "OPEN":
+        raise RuntimeError(f"PR #{number} is {pr['state'].lower()}")
+    if pr["isDraft"]:
+        _must(_gh(["pr", "ready", str(number)], repo_dir))
+    _must(_gh(["pr", "merge", str(number), "--squash"], repo_dir))
+    _drop_branch(repo_dir, pr["headRefName"])
+    return f"PR #{number} zmergován (squash)."
 
 
 def _upsert(conn, task_id: str, project: str, url: str | None, state: str) -> None:

@@ -55,6 +55,7 @@ class State(TypedDict, total=False):
     usage: Annotated[list, operator.add]
     discover: bool
     projects: list[str]
+    only: list[str] | None  # project filter from the dashboard; None = every project
     proposals: Annotated[list, operator.add]  # parallel discover writes
     plan: list[dict]
     planned: list[str] | None  # approved ids in order; None = `harness run`, rank the whole backlog
@@ -75,7 +76,9 @@ def fan_out(state: State) -> list[Send] | str:
 def start(state: State) -> list[Send] | str:
     if not state.get("discover"):
         return "pick_tasks"
-    return [Send("discover", {"project": p}) for p in state.get("projects") or []] or "prioritize"
+    only = state.get("only")
+    return [Send("discover", {"project": p}) for p in state.get("projects") or [] if not only or p in only] \
+        or "prioritize"
 
 
 def after_approve(state: State) -> str:

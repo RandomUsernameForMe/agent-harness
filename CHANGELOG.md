@@ -49,3 +49,4 @@
 ## [2026-10-09] - Projekt linkedin v projects.yaml (verify ověřeno v čerstvém worktree z origin/main)
 ## [2026-10-09] - Fáze 5: reflexe zpětné vazby → lekce (LangGraph Store, schvaluje vlastník) v promptech, důvod zamítnutí, harness jako projekt jen pro vlastní prompty
 ## [2026-10-09] - Dashboard se po restartu serve sám přenačte; fáze 5 kritérium 4 ověřeno ostře
+## [2026-10-09] - Dashboard: výběr projektů pro frontu a go, merge PR (squash) s úklidem větve a worktree, stav CI u PR
