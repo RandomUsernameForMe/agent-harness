@@ -36,12 +36,12 @@ projects:
     base: main
     setup: ["npm ci"]
     verify: ["node --test editor/*.test.ts", "npx tsc --noEmit"]
-  # fáze 5: harness mění jen vlastní prompty (úkoly jen z reflexe nebo ručně); guard drží Python kód mimo dosah
+  # harness upravuje sám sebe (discover, reflexe, ručně); pojistky mimo dosah, merge jen ručně z dashboardu
   harness:
     path: .
     base: main
-    discover: false
     # venv mimo worktree, sdílený úkoly harnessu
     setup: ['python -m venv ..\_hvenv && ..\_hvenv\Scripts\python -m pip install -q -e ".[dev]"']
     verify: ['..\_hvenv\Scripts\python -m pytest -q']
-    allowed: ["harness/prompts/**", "CHANGELOG.md"]
+    # guard (diff filtr), sdk (NO_PUBLISH), quota (OAuth token), tahle konfigurace
+    allowed: ["!harness/guard.py", "!harness/sdk.py", "!harness/quota.py", "!projects.yaml"]

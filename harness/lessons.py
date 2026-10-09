@@ -119,10 +119,10 @@ def parse_reflection(text: str, items: list[dict]) -> list[dict]:
 
 
 def harness_task(item: dict) -> tuple[str, list[str]]:
-    """A prompt change for the harness as a [~] proposal in its BACKLOG section."""
+    """A change to the harness itself (prompts or code) as a [~] proposal in its BACKLOG section."""
     pid = proposal_id(HARNESS, item["title"])
     p = {"id": pid, "title": item["title"], "description": f"{item['text']}\nZdroj: {', '.join(item['source']) or '-'}",
-         "done": "Změna jen v harness/prompts/** (a CHANGELOG.md), pytest zelený."}
+         "done": "Změna v promptech nebo kódu harnessu (ne guard/sdk/quota/projects.yaml), pytest zelený."}
     return pid, task_lines(p, "~")
 
 

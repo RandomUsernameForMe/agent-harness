@@ -29,3 +29,9 @@ def test_too_large():
 def test_new_failures():
     assert new_failures(["npm test"], ["npm test", "npx tsc --noEmit"]) == ["npx tsc --noEmit"]
     assert new_failures([], []) == []
+
+
+def test_exclusion_wins_and_alone_allows_rest():
+    assert check_diff(["a/x.py", "b.md"], 1, ("!a/secret.py",), 800) is None
+    assert check_diff(["a/secret.py"], 1, ("!a/secret.py",), 800) == "forbidden paths: a/secret.py"
+    assert check_diff(["bot/k.py"], 1, ("bot/**", "!bot/k.py"), 800) == "forbidden paths: bot/k.py"
