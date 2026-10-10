@@ -11,7 +11,7 @@ from typing import Callable
 from langgraph.config import get_store
 
 from . import backlog
-from .discover import json_array, proposal_id, task_lines
+from .discover import json_array, proposal_id, safe_title, task_lines
 from .traces import pr_urls
 
 LESSONS = "lessons"
@@ -120,8 +120,9 @@ def parse_reflection(text: str, items: list[dict]) -> list[dict]:
 
 def harness_task(item: dict) -> tuple[str, list[str]]:
     """A change to the harness itself (prompts or code) as a [~] proposal in its BACKLOG section."""
-    pid = proposal_id(HARNESS, item["title"])
-    p = {"id": pid, "title": item["title"], "description": f"{item['text']}\nZdroj: {', '.join(item['source']) or '-'}",
+    title = safe_title(item["title"])
+    pid = proposal_id(HARNESS, title)
+    p = {"id": pid, "title": title, "description": f"{item['text']}\nZdroj: {', '.join(item['source']) or '-'}",
          "done": "Změna v promptech nebo kódu harnessu (ne guard/sdk/quota/projects.yaml), pytest zelený."}
     return pid, task_lines(p, "~")
 

@@ -39,6 +39,11 @@ def _line(value) -> str:
     return " ".join(str(value or "").split())
 
 
+def safe_title(value) -> str:
+    """Title without " — " / " → ", which BACKLOG reads as the start of a finished task's note."""
+    return _line(value).replace(" — ", " – ").replace(" → ", " -> ")
+
+
 def proposal_id(project: str, title: str) -> str:
     digest = hashlib.sha1(title.encode()).hexdigest()[:6]
     return f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-ai-{digest}"
@@ -55,7 +60,7 @@ def parse_proposals(text: str, project: str, known: list[Task], lens: str = "fix
     ids, titles = {t.id for t in known}, {t.title.casefold() for t in known}
     out: list[dict] = []
     for item in json_array(text) or []:
-        title = _line(item.get("title"))[:100] if isinstance(item, dict) else ""
+        title = safe_title(item.get("title"))[:100] if isinstance(item, dict) else ""
         pid = proposal_id(project, title)
         if not title or pid in ids or title.casefold() in titles:
             continue

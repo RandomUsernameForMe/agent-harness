@@ -125,3 +125,16 @@ def test_json_array_skips_bracketed_prose():
 def test_parse_ranking_ignores_unhashable_ids():
     cands = candidates(props("A"), [], {"demo"})
     assert parse_ranking('[{"id": ["x"]}, {"id": {"a": 1}}]', cands, 2) == []
+
+
+def test_parse_proposals_strips_note_separators():
+    props = parse_proposals('[{"title": "Validace — vstupu API"}, {"title": "A → B"}]', "demo", [])
+    assert [p["title"] for p in props] == ["Validace – vstupu API", "A -> B"]
+
+
+def test_rejected_proposal_keeps_full_title():
+    props = parse_proposals('[{"title": "Validace — vstupu API"}]', "demo", [])
+    text = apply_approval("## demo\n", props, plan=props, kept=[])
+    text = backlog.set_status(text, props[0]["id"], "-", " — zamítnuto: x")
+    (t,) = backlog.parse(text)
+    assert (t.status, t.title, t.note) == ("-", "Validace – vstupu API", "zamítnuto: x")
