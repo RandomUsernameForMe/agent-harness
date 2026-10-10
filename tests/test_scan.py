@@ -1,6 +1,7 @@
 from harness.backlog import parse
 from harness.nodes.real import git
-from harness.scan import new_proposals, proposal_lines, scan_project
+from harness.projects import Config
+from harness.scan import new_proposals, proposal_lines, scan_all, scan_project
 from tests.test_real_git import make_repo, project
 
 
@@ -25,13 +26,13 @@ def test_scan_reads_origin_base_not_working_copy(tmp_path):
     assert all(p.id.startswith("demo-todo-") and len(p.id) == len("demo-todo-") + 6 for p in props)
 
 
-def test_scan_ids_stable_when_line_moves_and_limit_applies(tmp_path):
+def test_scan_ids_stable_when_line_moves(tmp_path):
     repo = make_repo(tmp_path)
     commit_files(repo, {f"f{i}.py": f"# TODO item {i}\n" for i in range(8)})
-    first = scan_project(project(repo), limit=5)
-    assert len(first) == 5
+    first = scan_project(project(repo))
+    assert len(first) == 8
     commit_files(repo, {"f0.py": "\n\n# TODO item 0\n"})
-    assert scan_project(project(repo), limit=5)[0].id == first[0].id
+    assert scan_project(project(repo))[0].id == first[0].id
 
 
 def test_scan_without_markers_is_empty(tmp_path):
@@ -48,6 +49,21 @@ def test_new_proposals_skip_ids_in_backlog_and_lines_parse(tmp_path):
     [t] = parse("## demo\n" + "\n".join(proposal_lines(left)) + "\n")
     assert (t.status, t.priority, t.title) == ("~", 3, "TODO: two")
     assert "a.py:2" in t.description
+
+
+def test_scan_all_limits_after_skipping_known(tmp_path):
+    repo = make_repo(tmp_path)
+    commit_files(repo, {f"f{i}.py": f"# TODO item {i}\n" for i in range(7)})
+    props = scan_project(project(repo))
+    lines = [line for p in props[:5] for line in proposal_lines(p)]
+    lines[0] = lines[0].replace("[~]", "[-]")  # a rejected proposal stays known too
+    text = "## demo\n" + "\n".join(lines) + "\n"
+    cfg = Config("subscription", 3, 0.7, {"demo": project(repo)})
+    new_text, found = scan_all(cfg, text, limit=5)
+    assert found == props[5:]
+    tasks = parse(new_text)
+    assert len(tasks) == 7
+    assert [(t.id, t.status) for t in tasks[5:]] == [(p.id, "~") for p in props[5:]]
 
 
 def test_daemon_scan_appends_new_proposals_once(tmp_path):

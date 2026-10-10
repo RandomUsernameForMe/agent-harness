@@ -31,8 +31,8 @@ def _proposal(project: str, path: str, line: int, text: str) -> Proposal | None:
     return Proposal(f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-todo-{digest}", project, path, line, title[:100])
 
 
-def scan_project(project: Project, limit: int = 5) -> list[Proposal]:
-    """TODO/FIXME markers on origin/<base> (never the user's working copy), first `limit` by path."""
+def scan_project(project: Project) -> list[Proposal]:
+    """All TODO/FIXME markers on origin/<base> (never the user's working copy), sorted by path."""
     ref = f"origin/{project.base}"
     git(["fetch", "-q", "origin", project.base], project.path)
     # markdown excluded: plans/specs/notes quote TODOs as prose, not as work left in code
@@ -47,7 +47,7 @@ def scan_project(project: Project, limit: int = 5) -> list[Proposal]:
         if line.isdigit() and (p := _proposal(project.name, path, int(line), text)):
             props.append(p)
     props.sort(key=lambda p: (p.path, p.line))
-    return props[:limit]
+    return props
 
 
 def new_proposals(props: list[Proposal], tasks: list[Task]) -> list[Proposal]:
@@ -65,7 +65,7 @@ def scan_all(cfg: Config, text: str, names: list[str] | None = None, limit: int 
     found: list[Proposal] = []
     for name in names or [n for n, p in cfg.projects.items() if p.discover]:
         try:
-            props = new_proposals(scan_project(cfg.projects[name], limit), backlog.parse(text))
+            props = new_proposals(scan_project(cfg.projects[name]), backlog.parse(text))[:limit]
         except Exception as e:  # one unreachable repo must not hide the others
             print(f"{name}: scan failed: {e}", file=sys.stderr)
             continue
