@@ -110,12 +110,19 @@ def parse_reflection(text: str, items: list[dict]) -> list[dict]:
             continue
         body, scope = " ".join(str(x.get("text") or "").split())[:MAX_TEXT], x.get("scope", "project")
         project = x.get("project") if scope == "project" else HARNESS
+        if not isinstance(scope, str) or not isinstance(project, str):
+            continue
         if not body or scope not in ("project", "prompt") or project not in projects | {HARNESS}:
             continue
         out.append({"project": project, "scope": scope, "text": body,
                     "title": " ".join(str(x.get("title") or body).split())[:80],
-                    "source": [k for k in x.get("source") or [] if k in keys]})
+                    "source": [k for k in _as_list(x.get("source")) if isinstance(k, str) and k in keys]})
     return out
+
+
+def _as_list(raw) -> list:
+    """Model may send a string or garbage where a list is expected."""
+    return [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else []
 
 
 def harness_task(item: dict) -> tuple[str, list[str]]:

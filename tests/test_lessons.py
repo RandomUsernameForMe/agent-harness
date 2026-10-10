@@ -58,6 +58,20 @@ def test_parse_reflection_filters():
     assert out[0]["source"] == ["rejected:d-1"] and out[2]["title"] == "Plán čte CLAUDE.md"
 
 
+def test_parse_reflection_tolerates_bad_types():
+    items = [{"key": "rejected:x", "project": "demo"}]
+    text = json.dumps([
+        {"project": "demo", "text": "a", "source": 5},
+        {"project": "demo", "text": "b", "source": "rejected:x"},
+        {"project": ["a"], "text": "c"},
+        {"project": {"a": 1}, "text": "c2"},
+        {"project": "demo", "scope": ["project"], "text": "e"},
+        {"project": "demo", "text": "d", "source": ["rejected:x", {"k": 1}]}])
+    out = lessons.parse_reflection(text, items)
+    assert [o["text"] for o in out] == ["a", "b", "d"]
+    assert [o["source"] for o in out] == [[], ["rejected:x"], ["rejected:x"]]
+
+
 def test_propose_decide_and_active_texts():
     store = InMemoryStore()
     key = lessons.propose(store, "demo", "A", ["rejected:d-1"])
