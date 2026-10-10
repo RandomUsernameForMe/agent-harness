@@ -104,3 +104,11 @@ def test_edit_backlog_keeps_bytes(tmp_path):
     p.write_bytes("## demo\r\n- [~] P3 d-1 Návrh\r\n".encode("utf-8"))
     edit_backlog(p, lambda text: set_status(text, "d-1", " "))
     assert p.read_bytes().decode("utf-8") == "## demo\r\n- [ ] P3 d-1 Návrh\r\n"
+
+
+def test_en_dash_title_survives_rejection():
+    text = "## demo\n- [ ] P2 d-01 Validace – vstupu API\n"
+    text = set_status(text, "d-01", "-")
+    text = set_status(text, "d-01", "-", " — zamítnuto: x")
+    (t,) = parse(text)
+    assert (t.title, t.note) == ("Validace – vstupu API", "zamítnuto: x")
