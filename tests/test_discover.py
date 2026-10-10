@@ -32,6 +32,12 @@ def test_parse_proposals_drops_junk_and_duplicates():
     assert [(p["title"], p["kind"]) for p in props] == [("Víc řádků", "debt")]
 
 
+def test_parse_proposals_kind_follows_lens():
+    text = '[{"title": "Export do CSV", "kind": "bug"}, {"title": "Nový dashboard", "kind": "feature"}]'
+    assert [p["kind"] for p in parse_proposals(text, "demo", [], "feature")] == ["feature", "feature"]
+    assert [p["kind"] for p in parse_proposals(text, "demo", [])] == ["bug", "debt"]
+
+
 def test_parse_proposals_skips_known_id_and_bad_json():
     known = [task(proposal_id("demo", "Testy"), "Jiný název", status="-")]
     assert parse_proposals('[{"title": "Testy"}]', "demo", known) == []
@@ -92,7 +98,8 @@ def test_apply_approval_writes_statuses_once():
     text = apply_approval(text, p, plan, [p[0]["id"]])  # idempotent
     st = {t.title: t.status for t in backlog.parse(text)}
     assert st == {"Ruční": " ", "Schválený": " ", "Vyškrtnutý": "-", "Nevybraný": "~"}
-    assert f"- [ ] P2 {p[0]['id']} Schválený\n  d\n  Hotovo = ok\n" in text
+    assert f"- [ ] P2 {p[0]['id']} [test] Schválený\n  d\n  Hotovo = ok\n" in text
+    assert {t.kind for t in backlog.parse(text) if t.id != "t1"} == {"test"}
 
 
 def test_apply_approval_quit_parks_everything():

@@ -105,14 +105,14 @@ def test_graph_passes_config_into_trace_context(tmp_path):
     from harness.graph import initial_state
     seen = []
 
-    def explore(name, known):
+    def explore(name, known, lens):
         seen.append(trace.current())
         return json.dumps([]), {}
     app, bp, c = go_graph(tmp_path, explore, lambda *a: ("[]", {}), [])
     write(bp, "")
     app.invoke(initial_state("go-7", c, True, discover=True), {"configurable": {"thread_id": "go-7"}})
-    assert sorted(seen, key=lambda t: t.worker) == [trace.Trace("go-7", "discover", "demo"),
-                                                    trace.Trace("go-7", "discover", "web")]
+    assert sorted(seen, key=lambda t: t.worker) == [trace.Trace("go-7", "discover", "demo")] * 2 \
+        + [trace.Trace("go-7", "discover", "web")] * 2
 
 
 def test_sink_failure_never_changes_the_agent_outcome(monkeypatch, capsys):

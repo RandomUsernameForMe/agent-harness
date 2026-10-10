@@ -111,6 +111,9 @@
           <b>🔍 Najít a naplánovat</b><span>Opus projde projekty, navrhne úkoly; plán schválíš tady, pak je zpracuje</span></button>
       </div>
       <div class="row" id="scope" style="margin-top:10px"></div>
+      <div class="row" id="lenses" style="margin-top:6px; font-size:13px"><span class="muted">Hledat:</span>
+        <label class="chip"><input type="checkbox" value="fix" checked> Bugy a opravy</label>
+        <label class="chip"><input type="checkbox" value="feature" checked> Nové features</label></div>
       <div class="pipe" id="pipe"></div>
       <div id="workers"></div>
       <div id="flowHint" class="muted"></div>
@@ -152,6 +155,13 @@ function scoped() {
   // all checked → no filter, so the daemon's own default (every project) applies
   const boxes = [...$("scope").querySelectorAll("input")];
   return boxes.every(c => c.checked) ? {} : {projects: boxes.filter(c => c.checked).map(c => c.value)};
+}
+
+function runBody(action) {
+  // both lenses checked → no filter; only "go" discovers, so only it carries lenses
+  const boxes = [...$("lenses").querySelectorAll("input")];
+  return action === "go" && !boxes.every(c => c.checked)
+    ? {...scoped(), lenses: boxes.filter(c => c.checked).map(c => c.value)} : scoped();
 }
 
 function renderScope(projects) {
@@ -313,9 +323,15 @@ function renderQuestions(qs) {
 }
 
 function proposalList(props) {
+  const features = props.filter(t => t.kind === "feature"), fixes = props.filter(t => t.kind !== "feature");
+  return proposalGroup("Návrhy: nové features", features) + proposalGroup("Návrhy: bugy a opravy", fixes);
+}
+
+function proposalGroup(heading, props) {
   if (!props.length) return "";
-  return `<h4>Návrhy</h4><ul>${props.map(t => `<li class="prop">
-      <details><summary title="${esc(t.title)}"><span class="muted">P${t.priority}</span> ${esc(t.title)}</summary>
+  return `<h4>${heading}</h4><ul>${props.map(t => `<li class="prop">
+      <details><summary title="${esc(t.title)}"><span class="muted">P${t.priority}</span>
+        ${t.kind && t.kind !== "feature" ? `<span class="tag">${esc(t.kind)}</span>` : ""} ${esc(t.title)}</summary>
       ${t.description ? `<p>${esc(t.description)}</p>` : ""}</details>
       <button data-task="${esc(t.id)}" data-do="approve" title="Schválit → fronta" aria-label="Schválit" ${serveOn ? "" : "disabled"}>✅</button>
       <button data-task="${esc(t.id)}" data-do="reject" title="Zamítnout" aria-label="Zamítnout" ${serveOn ? "" : "disabled"}>❌</button></li>`).join("")}</ul>`;
@@ -436,7 +452,7 @@ async function refreshUsage() {
 }
 
 document.querySelectorAll("button.action").forEach(b => {
-  b.onclick = () => act(b.dataset.act, scoped());
+  b.onclick = () => act(b.dataset.act, runBody(b.dataset.act));
   b.onmouseenter = b.onfocus = () => preview(b);
   b.onmouseleave = b.onblur = unpreview;
 });

@@ -65,6 +65,15 @@ def test_proposal_status_parsed_and_title_kept():
     assert (t.status, t.title, t.description) == ("~", "TODO: fix — later", "src/a.ts:3")
 
 
+def test_kind_tag_parsed_and_kept_by_set_status():
+    text = "## p\n- [~] P2 p-ai-1 [feature] Export do CSV\n- [ ] P2 p-2 [WIP] Ruční\n"
+    t1, t2 = parse(text)
+    assert (t1.kind, t1.title) == ("feature", "Export do CSV")
+    assert (t2.kind, t2.title) == ("", "[WIP] Ruční")
+    done = parse(set_status(text, "p-ai-1", "x", " → https://example.com/pull/1"))[0]
+    assert (done.kind, done.title, done.note) == ("feature", "Export do CSV", "https://example.com/pull/1")
+
+
 def test_add_tasks_appends_to_existing_section():
     text = "## a\n- [ ] P1 a-1 A\n  desc\n\n## b\n- [ ] P1 b-1 B\n"
     out = add_tasks(text, "a", ["- [~] P3 a-2 New", "  where"])

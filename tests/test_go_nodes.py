@@ -26,25 +26,49 @@ def read(path):
 def test_discover_passes_known_tasks_and_parses(tmp_path):
     bp = tmp_path / "BACKLOG.md"
     write(bp, "## demo\n- [-] P2 old Odmítnuté\n## web\n- [ ] P1 w1 Jiné\n")
-    seen = {}
+    seen = []
 
-    def explore(name, known):
-        seen[name] = [t.id for t in known]
-        return '[{"title": "Odmítnuté"}, {"title": "Nové", "kind": "bug"}]', {"usage": [{"node": "discover"}], "quota": 0.4}
+    def explore(name, known, lens):
+        seen.append((name, lens, [t.title for t in known]))
+        return '[{"title": "Odmítnuté"}, {"title": "Nové", "kind": "bug"}]', {"usage": [{"node": lens}], "quota": 0.4}
     out = make_discover(bp, explore)({"project": "demo"})
-    assert seen == {"demo": ["old"]}
-    assert [p["title"] for p in out["proposals"]] == ["Nové"]
-    assert out["usage"] == [{"node": "discover"}] and out["quota"] == 0.4 and out["go_errors"] == []
+    # the feature lens sees the fix lens' proposals as known, so it cannot repeat them
+    assert seen == [("demo", "fix", ["Odmítnuté"]), ("demo", "feature", ["Odmítnuté", "Nové"])]
+    assert [(p["title"], p["kind"]) for p in out["proposals"]] == [("Nové", "bug")]
+    assert out["usage"] == [{"node": "fix"}, {"node": "feature"}] and out["quota"] == 0.4 and out["go_errors"] == []
+
+
+def test_discover_merges_both_lenses(tmp_path):
+    bp = tmp_path / "BACKLOG.md"
+    write(bp, "")
+    answers = {"fix": '[{"title": "Oprava", "kind": "bug"}]', "feature": '[{"title": "Export do CSV"}]'}
+    out = make_discover(bp, lambda n, k, lens: (answers[lens], {}))({"project": "demo"})
+    assert [(p["title"], p["kind"]) for p in out["proposals"]] == [("Oprava", "bug"), ("Export do CSV", "feature")]
+
+
+def test_discover_runs_only_chosen_lenses(tmp_path):
+    bp = tmp_path / "BACKLOG.md"
+    write(bp, "")
+    calls = []
+    explore = lambda n, k, lens: (calls.append(lens) or '[{"title": "Export do CSV"}]', {})
+    out = make_discover(bp, explore)({"project": "demo", "lenses": ["feature"]})
+    assert calls == ["feature"] and [p["kind"] for p in out["proposals"]] == ["feature"]
 
 
 def test_discover_failure_costs_only_this_project(tmp_path):
     bp = tmp_path / "BACKLOG.md"
     write(bp, "")
-    boom = make_discover(bp, lambda n, k: (_ for _ in ()).throw(RuntimeError("agent died")))
-    assert boom({"project": "demo"}) == {"proposals": [], "go_errors": ["demo: RuntimeError: agent died"]}
-    prose = make_discover(bp, lambda n, k: ("Nic jsem nenašel.", {}))
-    assert prose({"project": "demo"})["go_errors"] == ["demo: odpověď bez JSON pole"]
-    empty = make_discover(bp, lambda n, k: ("[]", {}))
+    def half(n, k, lens):
+        if lens == "fix":
+            raise RuntimeError("agent died")
+        return '[{"title": "Export"}]', {}
+    out = make_discover(bp, half)({"project": "demo"})
+    assert out["go_errors"] == ["demo/fix: RuntimeError: agent died"]
+    assert [p["title"] for p in out["proposals"]] == ["Export"]
+    prose = make_discover(bp, lambda n, k, lens: ("Nic jsem nenašel.", {}))
+    assert prose({"project": "demo"})["go_errors"] == ["demo/fix: odpověď bez JSON pole",
+                                                       "demo/feature: odpověď bez JSON pole"]
+    empty = make_discover(bp, lambda n, k, lens: ("[]", {}))
     assert empty({"project": "demo"})["go_errors"] == []
 
 
@@ -52,7 +76,7 @@ def test_discover_lets_rate_limit_through(tmp_path):
     bp = tmp_path / "BACKLOG.md"
     write(bp, "")
 
-    def limited(name, known):
+    def limited(name, known, lens):
         raise RateLimited(123)
     with pytest.raises(RateLimited):
         make_discover(bp, limited)({"project": "demo"})
@@ -98,7 +122,7 @@ def go_graph(tmp_path, explore, rank_fn, workers):
 
 def test_go_end_to_end_with_approval(tmp_path):
     workers = []
-    explore = lambda name, known: (json.dumps([{"title": f"Úkol {name}"}]), {})
+    explore = lambda name, known, lens: (json.dumps([{"title": f"Úkol {name}"}] if lens == "fix" else []), {})
     rank_all = lambda cands, n, f, w: (json.dumps([{"id": c["id"]} for c in cands]), {})
     app, bp, c = go_graph(tmp_path, explore, rank_all, workers)
     write(bp, "## demo\n- [ ] P3 t1 Ruční\n")
@@ -132,7 +156,7 @@ def test_pick_tasks_follows_planned_order(tmp_path):
 
 def test_go_quota_spent_by_discover_stops_workers(tmp_path):
     workers = []
-    explore = lambda name, known: (json.dumps([{"title": f"Úkol {name}"}]), {"usage": [], "quota": 0.95})
+    explore = lambda name, known, lens: (json.dumps([{"title": f"Úkol {name}"}] if lens == "fix" else []), {"usage": [], "quota": 0.95})
     rank_all = lambda cands, n, f, w: (json.dumps([{"id": c["id"]} for c in cands]), {})
     app, bp, c = go_graph(tmp_path, explore, rank_all, workers)
     write(bp, "")

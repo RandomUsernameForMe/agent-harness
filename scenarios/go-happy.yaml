@@ -8,9 +8,10 @@ discover:
   web:
     proposals:
       - {title: "Opravit odkaz v patičce", kind: bug, why: "vede na 404", done: "odkaz vede na /kontakt"}
-      - {title: "Přepsat celý frontend", kind: feature, why: "proč ne", done: "?"}
+    features:
+      - {title: "Export galerie do ZIP", why: "klienti chtějí stáhnout vše najednou", done: "tlačítko stáhne ZIP"}
 nodes:
   # 1-based indexy kandidátů: návrhy seřazené podle projektu, pak otevřené úkoly z BACKLOGu
-  prioritize: {pick: [1, 2, 4]}
+  prioritize: {pick: [3, 1, 4]}
 max_tasks: 3
 delay: 0.5

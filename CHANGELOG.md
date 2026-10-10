@@ -55,3 +55,5 @@
 ## [2026-10-09] - Ceny: odhad u subscription (~/≈) oddělen od skutečně zaplaceného API (billing z apiKeySource)
 ## [2026-10-09] - Živá kvóta subscription (5h + 7 dní) z endpointu /usage Claude Code; serve se jí řídí, při chybě záloha na SDK
 ## [2026-10-09] - Harness upravuje sám sebe: discover zapnutý, allowed s ! výjimkami (guard/sdk/quota/projects.yaml), reflexe navrhuje i změny kódu
+## [2026-10-10] - Discover hledá zvlášť opravy a nové features (dva prompty, mix v prioritizaci)
+## [2026-10-10] - Druh návrhu v BACKLOGu ([feature] Titulek); dashboard dělí návrhy na features a opravy a před během volí, co hledat
