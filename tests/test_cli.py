@@ -122,9 +122,9 @@ def test_simulate_go_asks_for_plan_approval_until_valid(tmp_path, capsys, monkey
     monkeypatch.setattr("builtins.input", lambda p: next(answers))
     assert main(["--home", str(tmp_path), "simulate", "go-happy", "--delay", "0"]) == 0
     out = capsys.readouterr().out
-    assert "1. [demo] test Testy pro parser (nový)" in out
+    assert "1. [web] feature Export galerie do ZIP (nový)" in out
     assert "neplatná volba: 9" in out
-    assert "[-] P2 web-ai-" in out and "[x] P2 sim-01" in out
+    assert "[-] P2 demo-ai-" in out and "[x] P2 web-ai-" in out and "[x] P2 sim-01" in out
 
 
 def test_stats_syncs_outcomes_and_prints_costs(tmp_path, capsys, monkeypatch):

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import backlog, events, lessons, traces
+from .discover import LENSES
 from .nodes.common import edit_backlog
 from .priority import config_focus, rank
 from .projects import Config
@@ -154,7 +155,16 @@ def _only(ctx: Ctx, projects) -> list[str] | None:
     return projects
 
 
-def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False, only: list[str] | None = None) -> str:
+def _lenses(lenses) -> list[str] | None:
+    if lenses is None:
+        return None
+    if not isinstance(lenses, list) or not lenses or not set(lenses) <= set(LENSES):
+        raise ValueError(f"lenses must be a non-empty subset of {list(LENSES)}")
+    return lenses
+
+
+def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False, only: list[str] | None = None,
+               lenses: list[str] | None = None) -> str:
     run = ctx.state["run"]
     if ctx.busy or (run and run["status"] in ACTIVE):
         return "Běh už probíhá nebo čeká — /status."
@@ -165,7 +175,7 @@ def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False, only: lis
         return "Fronta je prázdná." if manual else ""
     ctx.state["seq"] += 1
     run_id = f"{'go' if discover else 'run'}-{ctx.now():%Y%m%d-%H%M%S}-s{ctx.state['seq']}"
-    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover, "only": only})
+    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover, "only": only, "lenses": lenses})
     return f"▶️ Spouštím {run_id}."
 
 
@@ -506,7 +516,8 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
     with ctx.lock:
         _collect(ctx)
         if action in ("run", "go"):
-            reply = _start_new(ctx, manual=True, discover=action == "go", only=_only(ctx, data.get("projects")))
+            reply = _start_new(ctx, manual=True, discover=action == "go", only=_only(ctx, data.get("projects")),
+                               lenses=_lenses(data.get("lenses")))
         elif action in ("approve", "reject"):
             reply = _decide(ctx, str(data.get("task")), action == "approve", str(data.get("reason") or ""))
         elif action == "lesson":

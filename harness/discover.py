@@ -7,8 +7,9 @@ from . import backlog
 from .backlog import Task
 from .priority import rank
 
-KINDS = ("test", "bug", "debt", "feature", "docs")
-MAX_PROPOSALS = 5
+FIX_KINDS = ("test", "bug", "debt", "docs")
+LENSES = ("fix", "feature")  # one discover prompt each: discover_fix.md, discover_feature.md
+MAX_PROPOSALS = 5  # per lens
 NEW_PRIORITY = 2
 FENCE_RE = re.compile(r"```(?:json)?\s*(\[.*?\])\s*```", re.DOTALL)
 
@@ -43,7 +44,13 @@ def proposal_id(project: str, title: str) -> str:
     return f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-ai-{digest}"
 
 
-def parse_proposals(text: str, project: str, known: list[Task]) -> list[dict]:
+def _kind(item: dict, lens: str) -> str:
+    if lens == "feature":
+        return "feature"
+    return item.get("kind") if item.get("kind") in FIX_KINDS else "debt"
+
+
+def parse_proposals(text: str, project: str, known: list[Task], lens: str = "fix") -> list[dict]:
     """Up to MAX_PROPOSALS new proposals. `known` = backlog tasks in any status, so rejected ones never return."""
     ids, titles = {t.id for t in known}, {t.title.casefold() for t in known}
     out: list[dict] = []
@@ -55,7 +62,7 @@ def parse_proposals(text: str, project: str, known: list[Task]) -> list[dict]:
         ids.add(pid)
         titles.add(title.casefold())
         out.append({"id": pid, "project": project, "title": title,
-                    "kind": item.get("kind") if item.get("kind") in KINDS else "debt",
+                    "kind": _kind(item, lens),
                     "description": str(item.get("description") or "").strip(),
                     "why": _line(item.get("why")), "done": _line(item.get("done")), "source": "new"})
     return out[:MAX_PROPOSALS]
@@ -64,7 +71,7 @@ def parse_proposals(text: str, project: str, known: list[Task]) -> list[dict]:
 def candidates(proposals: list[dict], tasks: list[Task], projects: set[str]) -> list[dict]:
     """New proposals (stable by project — parallel discover finishes in any order) + open backlog tasks."""
     new = [p | {"priority": NEW_PRIORITY} for p in sorted(proposals, key=lambda p: p["project"])]
-    old = [{"id": t.id, "project": t.project, "title": t.title, "kind": "", "description": t.description,
+    old = [{"id": t.id, "project": t.project, "title": t.title, "kind": t.kind, "description": t.description,
             "why": "", "done": "", "source": "backlog", "priority": t.priority}
            for t in tasks if t.status == " " and t.project in projects]
     return new + old
@@ -101,7 +108,8 @@ def parse_approval(answer: str, n: int) -> list[int] | str:
 
 
 def task_lines(p: dict, status: str) -> list[str]:
-    lines = [f"- [{status}] P{NEW_PRIORITY} {p['id']} {p['title']}"]
+    kind = f"[{p['kind']}] " if p.get("kind") else ""
+    lines = [f"- [{status}] P{NEW_PRIORITY} {p['id']} {kind}{p['title']}"]
     lines += [f"  {row.strip()}" for row in p["description"].splitlines() if row.strip()]
     return lines + ([f"  Hotovo = {p['done']}"] if p["done"] else [])
 

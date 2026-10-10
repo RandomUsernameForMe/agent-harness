@@ -5,6 +5,8 @@ HEADER_RE = re.compile(r"^## (?P<project>\S+)\s*$")
 # id becomes a git branch name and CLI argument → restrict to safe characters
 TASK_RE = re.compile(r"^- \[(?P<status>[ x!?~-])\] P(?P<prio>[1-3]) (?P<id>[A-Za-z0-9._-]+) (?P<rest>.+)$")
 SUFFIX_RE = re.compile(r" (?:→|—) ")
+# proposal kind as a title prefix: "- [~] P2 id [feature] Title"; set_status keeps it untouched
+KIND_RE = re.compile(r"^\[(?P<kind>test|bug|debt|feature|docs)\] (?P<title>.+)$")
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,7 @@ class Task:
     status: str
     description: str
     note: str = ""  # suffix of a finished task: PR url, failure, rejection reason
+    kind: str = ""  # test|bug|debt|feature|docs; "" = written by hand or before kinds existed
 
 
 def _split(rest: str, status: str) -> tuple[str, str]:
@@ -38,8 +41,10 @@ def parse(text: str) -> list[Task]:
             project, current = m["project"], None
         elif (m := TASK_RE.match(line)) and project:
             title, note = _split(m["rest"], m["status"])
+            k = KIND_RE.match(title)
             current = {"id": m["id"], "project": project, "priority": int(m["prio"]),
-                       "title": title, "status": m["status"], "description": [], "note": note}
+                       "title": k["title"] if k else title, "status": m["status"], "description": [], "note": note,
+                       "kind": k["kind"] if k else ""}
             raw.append(current)
         elif current is not None and line.startswith("  ") and line.strip():
             current["description"].append(line.strip())

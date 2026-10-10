@@ -59,8 +59,10 @@ def test_start_routes_go_and_run():
     from harness.graph import start
     assert start({"discover": False}) == "pick_tasks"
     assert start({}) == "pick_tasks"
-    assert start({"discover": True, "projects": ["a", "b"]}) == [Send("discover", {"project": "a"}),
-                                                                Send("discover", {"project": "b"})]
+    assert start({"discover": True, "projects": ["a", "b"]}) == [Send("discover", {"project": "a", "lenses": None}),
+                                                                Send("discover", {"project": "b", "lenses": None})]
+    assert start({"discover": True, "projects": ["a"], "lenses": ["feature"]}) == \
+        [Send("discover", {"project": "a", "lenses": ["feature"]})]
     assert start({"discover": True, "projects": []}) == "prioritize"
 
 

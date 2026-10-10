@@ -115,12 +115,12 @@ def _fresh_discover_worktree(p: Project) -> Path:
     return wt
 
 
-def real_explore(cfg: Config) -> Callable[[str, list[Task]], tuple[str, dict]]:
-    def explore(name: str, known: list[Task]) -> tuple[str, dict]:
+def real_explore(cfg: Config) -> Callable[[str, list[Task], str], tuple[str, dict]]:
+    def explore(name: str, known: list[Task], lens: str) -> tuple[str, dict]:
         p = cfg.projects[name]
         wt = _fresh_discover_worktree(p)
         notes = captures_about(cfg.secondbrain[0], name, cfg.secondbrain[1]) if cfg.secondbrain else ""
-        prompt = render_prompt("discover.md", project=name, max_diff_lines=p.max_diff_lines,
+        prompt = render_prompt(f"discover_{lens}.md", project=name, max_diff_lines=p.max_diff_lines,
                                verify="\n".join(f"  {c}" for c in p.verify),
                                known="\n".join(f"  [{t.status}] {t.title}" for t in known) or "  (none)",
                                notes=notes or "(none)", lessons=lessons_block(name))

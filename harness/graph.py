@@ -56,6 +56,7 @@ class State(TypedDict, total=False):
     discover: bool
     projects: list[str]
     only: list[str] | None  # project filter from the dashboard; None = every project
+    lenses: list[str] | None  # discover lenses from the dashboard (fix, feature); None = both
     proposals: Annotated[list, operator.add]  # parallel discover writes
     plan: list[dict]
     planned: list[str] | None  # approved ids in order; None = `harness run`, rank the whole backlog
@@ -77,7 +78,8 @@ def start(state: State) -> list[Send] | str:
     if not state.get("discover"):
         return "pick_tasks"
     only = state.get("only")
-    return [Send("discover", {"project": p}) for p in state.get("projects") or [] if not only or p in only] \
+    lenses = state.get("lenses")
+    return [Send("discover", {"project": p, "lenses": lenses}) for p in state.get("projects") or [] if not only or p in only] \
         or "prioritize"
 
 

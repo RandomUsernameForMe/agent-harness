@@ -7,7 +7,7 @@ from langgraph.types import interrupt
 
 from .. import backlog, lessons
 from ..backlog import Task
-from ..discover import apply_approval, candidates, fallback_plan, json_array, parse_proposals, parse_ranking
+from ..discover import LENSES, apply_approval, candidates, fallback_plan, json_array, parse_proposals, parse_ranking
 from ..graph import RateLimited
 from ..priority import config_focus, pick_batch, rank
 from ..projects import Config
@@ -72,22 +72,36 @@ def _spent(agent: dict) -> dict:
     return {"usage": agent.get("usage") or [], "quota": agent.get("quota")}
 
 
-def make_discover(backlog_path: Path, explore: Callable[[str, list[Task]], tuple[str, dict]]):
-    """Proposals of one project (Send payload {"project"}). A failure costs only this project's proposals.
-    `explore` returns the model's answer and {"usage", "quota"} of the call."""
+def make_discover(backlog_path: Path, explore: Callable[[str, list[Task], str], tuple[str, dict]]):
+    """Proposals of one project (Send payload {"project", "lenses"}), one explore call per lens (fixes, features).
+    A failure costs only that lens of this project. `explore` returns the model's answer and {"usage", "quota"}."""
     def discover(state: dict) -> dict:
         name = state["project"]
         with _backlog_lock:
             known = [t for t in backlog.parse(_read(backlog_path)) if t.project == name]
-        try:
-            text, agent = explore(name, known)
-        except RateLimited:
-            raise
-        except Exception as e:
-            return {"proposals": [], "go_errors": [_error(name, e)]}
-        errors = [] if json_array(text) is not None else [f"{name}: odpověď bez JSON pole"]
-        return {"proposals": parse_proposals(text, name, known), "go_errors": errors} | _spent(agent)
+        out: dict = {"proposals": [], "go_errors": [], "usage": [], "quota": None}
+        for lens in state.get("lenses") or LENSES:
+            seen = known + _as_tasks(out["proposals"])
+            try:
+                text, agent = explore(name, seen, lens)
+            except RateLimited:
+                raise
+            except Exception as e:
+                out["go_errors"].append(_error(f"{name}/{lens}", e))
+                continue
+            if json_array(text) is None:
+                out["go_errors"].append(f"{name}/{lens}: odpověď bez JSON pole")
+            props = parse_proposals(text, name, seen, lens)
+            spent = _spent(agent)
+            out |= {"proposals": out["proposals"] + props, "usage": out["usage"] + spent["usage"],
+                    "quota": spent["quota"] if spent["quota"] is not None else out["quota"]}
+        return out
     return discover
+
+
+def _as_tasks(proposals: list[dict]) -> list[Task]:
+    """Proposals of an earlier lens as known tasks, so the next lens cannot repeat them."""
+    return [Task(p["id"], p["project"], 2, p["title"], " ", "") for p in proposals]
 
 
 def make_prioritize(backlog_path: Path, cfg: Config,

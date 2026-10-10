@@ -504,6 +504,17 @@ def test_dashboard_run_only_selected_projects(tmp_path):
     assert serve.act(env.ctx, "run", {"projects": ["beta"]}) == "Fronta je prázdná."
 
 
+def test_dashboard_go_only_features_lands_kind_in_backlog(tmp_path):
+    env = Env(tmp_path, "go-happy", now=NOON)
+    for bad in (["bugs"], [], "feature"):
+        with pytest.raises(ValueError):
+            serve.act(env.ctx, "go", {"lenses": bad})
+    serve.act(env.ctx, "go", {"lenses": ["feature"]})
+    serve.act(env.ctx, "plan", {"keep": "q"})
+    new = [t for t in parse(env.sim.backlog_path.read_bytes().decode("utf-8")) if t.id != "sim-01"]
+    assert [(t.title, t.kind, t.status) for t in new] == [("Export galerie do ZIP", "feature", "~")]
+
+
 def test_dashboard_go_only_selected_projects(tmp_path):
     env = Env(tmp_path, "go-happy", now=NOON)
     serve.act(env.ctx, "go", {"projects": ["web"]})

@@ -33,7 +33,7 @@ def test_prompts_carry_approved_lessons():
     for name, fields in {"implement.md": {"plan": "P", "failure": ""}, "plan.md": {"clarifications": ""}}.items():
         text = render_prompt(name, title="T", description="D", lessons=lessons, **fields)
         assert "- akano3: testy jsou node --test" in text and "approved by the owner" in text
-    text = render_prompt("discover.md", project="p", max_diff_lines=800, verify="x", known="-", notes="-", lessons=lessons)
+    text = render_prompt("discover_fix.md", project="p", max_diff_lines=800, verify="x", known="-", notes="-", lessons=lessons)
     assert "- akano3: testy jsou node --test" in text
 
 

@@ -27,7 +27,7 @@ def test_explore_reads_fresh_origin_with_context(tmp_path, monkeypatch):
     monkeypatch.setattr(real, "run_agent", fake_agent(calls, '[{"title": "X"}]'))
     explore = real.real_explore(cfg)
     known = [Task("d1", "demo", 2, "Starý úkol", "-", "")]
-    text, agent = explore("demo", known)
+    text, agent = explore("demo", known, "fix")
     assert text == '[{"title": "X"}]' and agent["usage"][0]["node"] == "discover" and agent["quota"] == 0.1
     c = calls[0]
     assert c["model"] == "opus" and c["tools"] == real.READ_TOOLS and c["max_turns"] == 40
@@ -38,7 +38,8 @@ def test_explore_reads_fresh_origin_with_context(tmp_path, monkeypatch):
     git(["add", "-A"], repo)
     git(["commit", "-q", "-m", "b"], repo)
     git(["push", "-q", "origin", "main"], repo)
-    explore("demo", known)
+    explore("demo", known, "feature")
+    assert "product scout" in calls[1]["prompt"] and "export do CSV" in calls[1]["prompt"]
     assert (wt / "b.txt").exists()
 
 

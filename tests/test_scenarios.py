@@ -232,13 +232,13 @@ def test_go_happy_runs_approved_plan(tmp_path):
     sim, conn, status = run("go-happy", tmp_path)
     assert status == "approving"
     asked = approvals(sim.app, sim.config)[0]
-    assert [p["title"] for p in asked["plan"]] == ["Testy pro parser", "Opravit odkaz v patičce",
-                                                   "Ruční úkol z BACKLOGu"]
+    assert [(p["title"], p["kind"]) for p in asked["plan"]] == [
+        ("Export galerie do ZIP", "feature"), ("Testy pro parser", "test"), ("Ruční úkol z BACKLOGu", "")]
     status = execute(sim.app, None, sim.config, conn, simulated=True, answers={asked["id"]: [0, 1, 2]})
     assert status == "done"
     assert statuses(sim) == {"sim-01": "x", proposal_id("demo", "Testy pro parser"): "x",
-                             proposal_id("web", "Opravit odkaz v patičce"): "x",
-                             proposal_id("web", "Přepsat celý frontend"): "~"}
+                             proposal_id("web", "Export galerie do ZIP"): "x",
+                             proposal_id("web", "Opravit odkaz v patičce"): "~"}
     assert started(conn, sim)[:4] == ["discover", "discover", "prioritize", "approve"]
 
 
@@ -248,7 +248,7 @@ def test_go_struck_task_is_rejected_and_not_run(tmp_path):
     sim, conn, _ = run("go-happy", tmp_path)
     asked = approvals(sim.app, sim.config)[0]
     execute(sim.app, None, sim.config, conn, simulated=True, answers={asked["id"]: [0, 2]})
-    assert statuses(sim)[proposal_id("web", "Opravit odkaz v patičce")] == "-"
+    assert statuses(sim)[proposal_id("demo", "Testy pro parser")] == "-"
     assert sim.script.calls["open_pr"] == 2
 
 

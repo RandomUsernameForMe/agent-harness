@@ -91,11 +91,19 @@ def fake_nodes(script: Script) -> dict:
 
 
 def fake_explore(script: Script) -> Callable:
-    """Scenario `discover: {project: {proposals: [...]}}`; a list value advances per call of that project."""
-    def explore(project: str, known) -> tuple[str, dict]:
-        script.lessons_seen[project] = lessons.active_texts(lessons.current_store(), project)
-        v = script.next("discover", project)
-        return json.dumps(v.get("proposals", []), ensure_ascii=False), {"usage": _usage("discover", "opus")}
+    """Scenario `discover: {project: {proposals: [...], features: [...]}}`; a list value advances per discover
+    of that project. The first lens of a discover draws the value; the feature lens right after fix reuses it."""
+    drawn: dict[str, dict] = {}
+    last: dict[str, str] = {}
+
+    def explore(project: str, known, lens: str) -> tuple[str, dict]:
+        # ponytail: a feature-only run right after a fix-only run reuses that value; no scenario does that
+        if lens == "fix" or last.get(project) != "fix":
+            script.lessons_seen[project] = lessons.active_texts(lessons.current_store(), project)
+            drawn[project] = script.next("discover", project)
+        last[project] = lens
+        v = drawn[project].get("proposals" if lens == "fix" else "features", [])
+        return json.dumps(v, ensure_ascii=False), {"usage": _usage("discover", "opus")}
     return explore
 
 
