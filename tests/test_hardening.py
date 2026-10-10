@@ -85,3 +85,18 @@ def test_worker_cannot_push_or_use_gh(tmp_path):
                        env={**os.environ, **env})
     assert p.returncode != 0
     assert env["GH_TOKEN"] == "" and Path(env["GH_CONFIG_DIR"]).is_dir()
+
+
+def test_hide_child_consoles_adds_no_window_flag(monkeypatch):
+    seen = []
+    orig = subprocess.Popen.__init__
+
+    def spy(self, *a, creationflags=0, **kw):
+        seen.append(creationflags)
+        orig(self, *a, creationflags=creationflags, **kw)
+    monkeypatch.setattr(subprocess.Popen, "__init__", spy)
+    cli.hide_child_consoles()
+    assert subprocess.run(["git", "--version"], capture_output=True).returncode == 0
+    subprocess.run(["git", "--version"], capture_output=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+    assert seen == [subprocess.CREATE_NO_WINDOW,
+                    subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP]
