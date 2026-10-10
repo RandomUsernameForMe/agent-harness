@@ -1,0 +1,7 @@
+name: Pokusy dojdou, replan s kontextem selhání úkol dotáhne
+tasks:
+  - {project: demo, id: sim-01, title: "Demo úkol", priority: P1}
+max_attempts: 2
+nodes:
+  verify: [{fail: "lint error"}, {fail: "type error"}, pass]
+delay: 0.8

@@ -16,7 +16,10 @@ def test_fan_out_sends_one_worker_per_batch_item():
 def test_after_verify():
     assert after_verify({"verify_ok": True, "attempts": 1, "max_attempts": 3}) == "open_pr"
     assert after_verify({"verify_ok": False, "attempts": 1, "max_attempts": 3}) == "implement"
-    assert after_verify({"verify_ok": False, "attempts": 3, "max_attempts": 3}) == "report"
+    assert after_verify({"verify_ok": False, "attempts": 3, "max_attempts": 3}) == "replan"
+    assert after_verify({"verify_ok": False, "attempts": 3, "max_attempts": 3, "replanned": True}) == "report"
+    assert after_verify({"verify_ok": False, "attempts": 1, "max_attempts": 3, "stuck": True}) == "replan"
+    assert after_verify({"verify_ok": False, "attempts": 1, "max_attempts": 3, "stuck": True, "replanned": True}) == "report"
     assert after_verify({"outcome": "failed", "verify_ok": True}) == "report"
 
 

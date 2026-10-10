@@ -1,0 +1,6 @@
+name: Stejná chyba dvakrát → jeden replan → stejná chyba → [!]
+tasks:
+  - {project: demo, id: sim-01, title: "Demo úkol", priority: P1}
+nodes:
+  verify: [{fail: "tsc: 3 type errors in 12ms"}, {fail: "tsc: 3 type errors in 15ms"}]
+delay: 0.8

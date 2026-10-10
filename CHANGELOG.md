@@ -61,3 +61,4 @@
 ## [2026-10-10] - Dashboard při načtení PR sám na pozadí rebasne harness PR v konfliktu jen v CHANGELOG.md (i po merge z GitHubu)
 ## [2026-10-10] - titulky návrhů bez „ — “/„ → “ (po zamítnutí se neořezávaly)
 ## [2026-10-10] - serve pod pythonw: child procesy (git/gh) bez blikajících konzolových oken
+## [2026-10-10] - Worker: plánovač z „Hotovo =“ odvodí ACCEPT příkaz, který verify pouští; opakovaná stejná chyba nebo vyčerpané pokusy → jeden replan s kontextem selhání
