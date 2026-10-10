@@ -88,3 +88,69 @@ def test_merge_pr_refuses_closed_and_keeps_user_worktree(tmp_path, monkeypatch):
     view["state"] = "OPEN"
     traces.merge_pr(repo, 5)
     assert user_wt.exists()  # only harness worktrees are force-removed
+
+
+
+def _changelog_conflict(tmp_path: Path, other: str | None = None) -> Path:
+    """origin/main and harness/t-1 both append an entry to CHANGELOG.md (and both change `other`)."""
+    repo = make_repo(tmp_path)
+
+    def commit(files: dict, msg: str, branch: str) -> None:
+        for name, text in files.items():
+            (repo / name).write_text(text)
+        git(["add", "-A"], repo)
+        git(["commit", "-q", "-m", msg], repo)
+        git(["push", "-q", "origin", branch], repo)
+    commit({"CHANGELOG.md": "## old\n"}, "changelog", "main")
+    git(["checkout", "-q", "-b", "harness/t-1"], repo)
+    commit({"CHANGELOG.md": "## old\n## t-1\n", "b.txt": "b\n"} | ({other: "t-1\n"} if other else {}), "t-1",
+           "harness/t-1")
+    git(["checkout", "-q", "main"], repo)
+    commit({"CHANGELOG.md": "## old\n## other PR\n"} | ({other: "main\n"} if other else {}), "other", "main")
+    return repo
+
+
+def _conflicting_gh(repo: Path, calls: list):
+    """gh: the PR is CONFLICTING, then UNKNOWN while GitHub recomputes, then MERGEABLE; merge records the branch."""
+    views = iter(["CONFLICTING", "UNKNOWN", "MERGEABLE"])
+
+    def gh(args, cwd):
+        calls.append(args[:2])
+        if args[1] == "view":
+            out = ('{"state": "OPEN", "isDraft": false, "headRefName": "harness/t-1", "baseRefName": "main", '
+                   '"mergeable": "%s"}' % next(views))
+            return subprocess.CompletedProcess(args, 0, out, "")
+        if args[1] == "merge":
+            git(["fetch", "-q", "origin"], repo)
+            calls.append({"changelog": git(["show", "origin/harness/t-1:CHANGELOG.md"], repo).splitlines(),
+                          "parent_is_main": git(["rev-parse", "origin/harness/t-1~1"], repo)
+                          == git(["rev-parse", "origin/main"], repo)})
+        return subprocess.CompletedProcess(args, 0, "", "")
+    return gh
+
+
+def test_merge_pr_resolves_changelog_only_conflict(tmp_path, monkeypatch):
+    from harness import traces
+    repo = _changelog_conflict(tmp_path)
+    calls = []
+    monkeypatch.setattr(traces, "_gh", _conflicting_gh(repo, calls))
+    monkeypatch.setattr(traces.time, "sleep", lambda s: None)
+    assert traces.merge_pr(repo, 5) == "PR #5 zmergován (squash)."
+    assert calls == [["pr", "view"], ["pr", "view"], ["pr", "view"], ["pr", "merge"],
+                     {"changelog": ["## old", "## other PR", "## t-1"], "parent_is_main": True}]
+    assert len(git(["worktree", "list"], repo).splitlines()) == 1  # throwaway worktree removed
+
+
+def test_merge_pr_leaves_other_conflicts_alone(tmp_path, monkeypatch):
+    import pytest
+
+    from harness import traces
+    repo = _changelog_conflict(tmp_path, other="a.txt")
+    before = git(["ls-remote", "origin", "harness/t-1"], repo)
+    calls = []
+    monkeypatch.setattr(traces, "_gh", _conflicting_gh(repo, calls))
+    with pytest.raises(RuntimeError, match="a.txt"):
+        traces.merge_pr(repo, 5)
+    assert calls == [["pr", "view"]]
+    assert git(["ls-remote", "origin", "harness/t-1"], repo) == before
+    assert len(git(["worktree", "list"], repo).splitlines()) == 1

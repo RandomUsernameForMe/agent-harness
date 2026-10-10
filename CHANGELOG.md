@@ -57,3 +57,5 @@
 ## [2026-10-09] - Harness upravuje sám sebe: discover zapnutý, allowed s ! výjimkami (guard/sdk/quota/projects.yaml), reflexe navrhuje i změny kódu
 ## [2026-10-10] - Discover hledá zvlášť opravy a nové features (dva prompty, mix v prioritizaci)
 ## [2026-10-10] - Druh návrhu v BACKLOGu ([feature] Titulek); dashboard dělí návrhy na features a opravy a před během volí, co hledat
+## [2026-10-10] - Merge z dashboardu: harness PR v konfliktu jen v CHANGELOG.md se nejdřív rebasne (oba záznamy zůstanou), jiný konflikt dál chybou
+## [2026-10-10] - Dashboard při načtení PR sám na pozadí rebasne harness PR v konfliktu jen v CHANGELOG.md (i po merge z GitHubu)
