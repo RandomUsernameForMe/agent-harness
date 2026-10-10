@@ -60,3 +60,4 @@
 ## [2026-10-10] - Merge z dashboardu: harness PR v konfliktu jen v CHANGELOG.md se nejdřív rebasne (oba záznamy zůstanou), jiný konflikt dál chybou
 ## [2026-10-10] - Dashboard při načtení PR sám na pozadí rebasne harness PR v konfliktu jen v CHANGELOG.md (i po merge z GitHubu)
 ## [2026-10-10] - titulky návrhů bez „ — “/„ → “ (po zamítnutí se neořezávaly)
+## [2026-10-10] - serve pod pythonw: child procesy (git/gh) bez blikajících konzolových oken

@@ -1,6 +1,7 @@
 import argparse
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -185,12 +186,22 @@ def _scan_into(cfg, backlog_path: Path) -> int:
     return len(props)
 
 
+def hide_child_consoles() -> None:
+    """Without a console every git/gh child would flash its own window; default them to CREATE_NO_WINDOW."""
+    init = subprocess.Popen.__init__
+
+    def no_window(self, *a, creationflags=0, **kw):
+        init(self, *a, creationflags=creationflags | subprocess.CREATE_NO_WINDOW, **kw)
+    subprocess.Popen.__init__ = no_window
+
+
 def cmd_serve(args) -> int:
     import uvicorn
 
     from .dashboard.app import create_app
     if sys.stdout is None:  # pythonw (autostart without a console window)
         sys.stdout = sys.stderr = open(args.home / "serve.log", "a", encoding="utf-8", buffering=1)
+        hide_child_consoles()
     token, chat = os.environ.get("HARNESS_TELEGRAM_TOKEN"), os.environ.get("HARNESS_TELEGRAM_CHAT_ID")
     if not token or not chat:
         print("HARNESS_TELEGRAM_TOKEN/CHAT_ID not set: dashboard only (see README → serve)", file=sys.stderr)
