@@ -3,6 +3,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Callable
@@ -34,6 +35,8 @@ URL_RE = re.compile(r" → (https?://\S+)\s*$")
 LOCAL_STATES = {"!": "failed", "?": "unclear"}
 FINAL_STATES = ("merged", "closed")
 GH_TIMEOUT = 20
+CHANGELOG = "CHANGELOG.md"
+MERGEABLE_TRIES, MERGEABLE_WAIT = 10, 2
 
 
 def ensure(conn) -> None:
@@ -212,11 +215,69 @@ def _drop_branch(repo_dir, branch: str) -> None:
             print(f"git {' '.join(args)} in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
 
 
+def _git(args: list[str], cwd) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8")
+
+
+def _union_changelog(wt: Path) -> None:
+    """Resolve a CHANGELOG.md conflict by keeping the lines of both sides (each PR appends its own entry)."""
+    stages = {}
+    for n in (1, 2, 3):
+        out = subprocess.run(["git", "show", f":{n}:{CHANGELOG}"], cwd=wt, capture_output=True)
+        stages[n] = out.stdout if out.returncode == 0 else b""  # no base stage when both sides added the file
+    with tempfile.TemporaryDirectory() as d:
+        base, theirs = Path(d, "base"), Path(d, "theirs")
+        base.write_bytes(stages[1])
+        theirs.write_bytes(stages[3])
+        (wt / CHANGELOG).write_bytes(stages[2])
+        _git(["merge-file", "--union", CHANGELOG, str(base), str(theirs)], wt)
+    _must(_git(["add", CHANGELOG], wt))
+
+
+def _rebase_keeping_changelogs(wt: Path, onto: str) -> None:
+    out = _git(["rebase", onto], wt)
+    while out.returncode != 0:
+        conflicts = _git(["diff", "--name-only", "--diff-filter=U"], wt).stdout.split()
+        if conflicts != [CHANGELOG]:
+            _git(["rebase", "--abort"], wt)
+            others = [c for c in conflicts if c != CHANGELOG]
+            raise RuntimeError(f"konflikt mimo {CHANGELOG}: {', '.join(others) or out.stderr.strip()}")
+        _union_changelog(wt)
+        out = _git(["-c", "core.editor=true", "rebase", "--continue"], wt)
+
+
+def resolve_changelog_conflict(repo_dir, branch: str, base: str) -> None:
+    """Rebase a PR branch onto origin/base in a throwaway worktree and force-push it; a conflict only in
+    CHANGELOG.md keeps both entries, any other conflict raises RuntimeError and pushes nothing."""
+    _must(_git(["fetch", "-q", "origin", base, branch], repo_dir))
+    wt = Path(tempfile.mkdtemp(prefix="harness-rebase-"))
+    _must(_git(["worktree", "add", "-q", "--detach", str(wt), f"origin/{branch}"], repo_dir))
+    try:
+        _rebase_keeping_changelogs(wt, f"origin/{base}")
+        _must(_git(["push", "-q", f"--force-with-lease={branch}:origin/{branch}", "origin", f"HEAD:{branch}"], wt))
+    finally:
+        _git(["worktree", "remove", "--force", str(wt)], repo_dir)
+
+
+def _wait_mergeable(repo_dir, number: int) -> None:
+    """GitHub recomputes mergeability after a push; merging before that fails."""
+    for _ in range(MERGEABLE_TRIES):
+        time.sleep(MERGEABLE_WAIT)
+        state = json.loads(_must(_gh(["pr", "view", str(number), "--json", "mergeable"], repo_dir)))["mergeable"]
+        if state != "UNKNOWN":
+            return
+
+
 def merge_pr(repo_dir, number: int) -> str:
-    """Squash-merge an open PR (a draft is marked ready first). RuntimeError carries gh's message."""
-    pr = json.loads(_must(_gh(["pr", "view", str(number), "--json", "state,isDraft,headRefName"], repo_dir)))
+    """Squash-merge an open PR (a draft is marked ready first). A harness PR in conflict only in CHANGELOG.md is
+    rebased first. RuntimeError carries gh's message."""
+    pr = json.loads(_must(_gh(["pr", "view", str(number), "--json",
+                               "state,isDraft,headRefName,baseRefName,mergeable"], repo_dir)))
     if pr["state"] != "OPEN":
         raise RuntimeError(f"PR #{number} is {pr['state'].lower()}")
+    if pr.get("mergeable") == "CONFLICTING" and pr["headRefName"].startswith("harness/"):
+        resolve_changelog_conflict(repo_dir, pr["headRefName"], pr["baseRefName"])
+        _wait_mergeable(repo_dir, number)
     if pr["isDraft"]:
         _must(_gh(["pr", "ready", str(number)], repo_dir))
     _must(_gh(["pr", "merge", str(number), "--squash"], repo_dir))
