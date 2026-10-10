@@ -17,6 +17,8 @@ Fáze 2: `run` zpracovává až `max_parallel` úkolů z různých projektů naj
 
 Fáze 3: když plánovač označí úkol za nejasný, worker se zeptá (uzel `clarify`, LangGraph `interrupt`) a běh skončí ve stavu `waiting`. Na dotaz se odpovídá v terminálu (`run` / `simulate`), v dashboardu nebo z Telegramu. Po 2 kolech dotazů nebo po přeskočení se úkol zapíše jako `[?]`. Zamítnutý návrh má stav `[-]`.
 
+Ověření hotovosti: plánovač z „Hotovo =“ v popisu úkolu odvodí řádek `ACCEPT: <příkaz>` (typicky konkrétní nový test). `verify` ho pustí vedle `verify` příkazů projektu a baseline ho nikdy neomluví. Když verify vrátí stejnou chybu jako minule (čísla se ignorují) nebo dojdou pokusy, worker se jednou vrátí do `plan` (uzel `replan`) s minulým plánem a chybou a pokusy začnou znovu. Další neúspěch → `[!]`.
+
 ## `harness go`
 
 Jedno kolo bez ručního psaní úkolů. Pro každý projekt souběžně běží `discover`: Opus si v čerstvém read-only worktree z `origin/<base>` projde kód, dokumentaci projektu a poznámky ze secondbrainu (Thoughts/, Inbox/) a navrhne nejvýš 5 úkolů velikosti jednoho PR. `prioritize` pak z návrhů a otevřených úkolů v BACKLOGu sestaví plán o délce `max_tasks_per_run`. Když volání selže, plán sestaví klasické pořadí podle priority.

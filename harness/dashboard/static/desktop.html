@@ -213,7 +213,7 @@ const STAGES = [["discover", "Hledání", "Opus prochází projekty"], ["priorit
   ["approve", "Schválení", "čeká na tebe"], ["pick_tasks", "Výběr", "vezme úkoly z fronty"],
   ["worker", "Práce", "paralelně na úkolech"], ["reflect", "Reflexe", "navrhne lekce"]];
 const NODES = [["preflight", "kontrola"], ["make_worktree", "worktree"], ["plan", "plán"], ["clarify", "dotaz"],
-  ["setup", "setup"], ["implement", "implementace"], ["verify", "testy"], ["open_pr", "PR"], ["report", "zápis"]];
+  ["setup", "setup"], ["implement", "implementace"], ["verify", "testy"], ["replan", "replan"], ["open_pr", "PR"], ["report", "zápis"]];
 const OUTCOME = {pr_opened: "PR otevřen", failed: "selhalo", needs_clarification: "nejasné"};
 let runActive = false;
 
@@ -256,7 +256,7 @@ function renderFlow(p, run) {
   }).join(`<span class="arrow">→</span>`);
   $("workers").innerHTML = p.workers.map(w => `<div class="wrow">
       <span class="title"><b>${esc(w.id)}</b> ${esc(w.title)}</span>
-      ${NODES.filter(([n]) => n !== "clarify" || w.nodes.clarify).map(([n, label]) =>
+      ${NODES.filter(([n]) => !["clarify", "replan"].includes(n) || w.nodes[n]).map(([n, label]) =>
         `<span class="node ${nodeState(w, n, run)}">${label}${n === "implement" && w.attempts > 1 ? ` ×${w.attempts}` : ""}</span>`).join("")}
       ${w.outcome && w.nodes.report === "done" ? (w.pr_url ? `<a href="${esc(w.pr_url)}" target="_blank" rel="noopener">${OUTCOME[w.outcome] || esc(w.outcome)}</a>`
         : `<span class="tag ${w.outcome === "pr_opened" ? "ok" : "fail"}">${OUTCOME[w.outcome] || esc(w.outcome)}</span>`) : ""}</div>`).join("");

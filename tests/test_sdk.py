@@ -30,7 +30,7 @@ def test_render_prompt_with_braces_in_values():
 def test_prompts_carry_approved_lessons():
     from harness.lessons import block
     lessons = block(["akano3: testy jsou node --test"])
-    for name, fields in {"implement.md": {"plan": "P", "failure": ""}, "plan.md": {"clarifications": ""}}.items():
+    for name, fields in {"implement.md": {"plan": "P", "failure": ""}, "plan.md": {"clarifications": "", "replan": ""}}.items():
         text = render_prompt(name, title="T", description="D", lessons=lessons, **fields)
         assert "- akano3: testy jsou node --test" in text and "approved by the owner" in text
     text = render_prompt("discover_fix.md", project="p", max_diff_lines=800, verify="x", known="-", notes="-", lessons=lessons)
@@ -38,13 +38,20 @@ def test_prompts_carry_approved_lessons():
 
 
 def test_render_plan_prompt():
-    text = render_prompt("plan.md", title="Lazy loading", description="Popis", clarifications="", lessons="")
-    assert "Lazy loading" in text and "UNCLEAR:" in text
+    text = render_prompt("plan.md", title="Lazy loading", description="Popis", clarifications="", replan="", lessons="")
+    assert "Lazy loading" in text and "UNCLEAR:" in text and "ACCEPT:" in text
+
+
+def test_replan_block_carries_previous_plan_and_failure():
+    from harness.nodes.real import replan_block
+    assert replan_block({"plan": "P"}) == ""
+    block = replan_block({"replanned": True, "plan": "old plan", "last_failure": "tsc: 3 errors"})
+    assert "old plan" in block and "tsc: 3 errors" in block
 
 
 def test_plan_prompt_carries_owner_answers():
     from harness.nodes.real import clarification_block
     assert clarification_block([]) == ""
     block = clarification_block(["Q?", "měř LCP"])
-    text = render_prompt("plan.md", title="T", description="D", clarifications=block, lessons="")
+    text = render_prompt("plan.md", title="T", description="D", clarifications=block, replan="", lessons="")
     assert "- Q?\n- měř LCP" in text and "owner" in text

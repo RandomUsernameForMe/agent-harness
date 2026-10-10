@@ -97,6 +97,18 @@ def lessons_block(project: str) -> str:
     return lessons.block(lessons.active_texts(lessons.current_store(), project))
 
 
+def parse_accept(plan: str) -> str:
+    lines = [ln.strip() for ln in plan.splitlines() if ln.strip().startswith("ACCEPT:")]
+    return lines[-1].removeprefix("ACCEPT:").strip().strip("`").strip() if lines else ""
+
+
+def replan_block(s: dict) -> str:
+    if not s.get("replanned"):
+        return ""
+    return (f"\nA previous plan for this task failed verification. Find the root cause and plan differently.\n"
+            f"Previous plan:\n{s.get('plan', '')}\n\nFailure:\n```\n{s.get('last_failure', '')}\n```\n")
+
+
 def clarification_block(answers: list[str]) -> str:
     if not answers:
         return ""
@@ -168,14 +180,14 @@ def real_nodes(cfg: Config) -> dict:
         t = s["task"]
         prompt = render_prompt("plan.md", title=t["title"], description=t["description"],
                                clarifications=clarification_block(s.get("clarifications") or []),
-                               lessons=lessons_block(t["project"]))
+                               replan=replan_block(s), lessons=lessons_block(t["project"]))
         r = run_agent(prompt,
                       cwd=s["worktree"], model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=30)
         out = _agent_out("plan", r)
         first = r.text.strip().splitlines()[0] if r.text.strip() else ""
         if first.startswith("UNCLEAR:"):
             return out | {"outcome": "needs_clarification", "last_failure": first.removeprefix("UNCLEAR:").strip()}
-        return out | {"plan": r.text}
+        return out | {"plan": r.text, "accept": parse_accept(r.text)}
 
     def setup(s):
         p, wt = proj(s), s["worktree"]
@@ -196,7 +208,9 @@ def real_nodes(cfg: Config) -> dict:
 
     def verify(s):
         p, wt = proj(s), s["worktree"]
-        results = [(cmd, *sh(cmd, wt)) for cmd in p.verify]
+        accept = [s["accept"]] if s.get("accept") else []
+        results = [(cmd, *sh(cmd, wt)) for cmd in [*p.verify, *accept]]
+        # baseline covers p.verify only, so it never excuses the acceptance command
         new = new_failures(s.get("baseline_failures") or [], [c for c, ok, _ in results if not ok])
         changed, lines = staged_changes(wt)
         failures = [f"$ {c}\n{out[-1500:]}" for c, ok, out in results if c in new]

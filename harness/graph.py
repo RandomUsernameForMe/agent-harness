@@ -1,4 +1,5 @@
 import operator
+import re
 from subprocess import CalledProcessError
 from typing import Annotated, Callable, TypedDict
 
@@ -30,6 +31,9 @@ class WorkerState(TypedDict, total=False):
     branch: str
     worktree: str
     plan: str
+    accept: str  # acceptance command the planner derived from the task's "Hotovo ="; verify runs it too
+    stuck: bool
+    replanned: bool
     clarifications: list[str]
     baseline_failures: list[str]
     attempts: int
@@ -111,7 +115,31 @@ def after_verify(state: WorkerState) -> str:
         return "report"
     if state.get("verify_ok"):
         return "open_pr"
-    return "implement" if state.get("attempts", 0) < state.get("max_attempts", 3) else "report"
+    if not state.get("stuck") and state.get("attempts", 0) < state.get("max_attempts", 3):
+        return "implement"
+    return "report" if state.get("replanned") else "replan"
+
+
+def replan(state: WorkerState) -> dict:
+    # last_failure stays: plan and implement see why the previous plan failed
+    return {"replanned": True, "attempts": 0, "stuck": False}
+
+
+def _norm(text: str) -> str:
+    return " ".join(re.sub(r"\d+", "#", text).split())
+
+
+def same_failure(a: str, b: str) -> bool:
+    # ponytail: digits masked (counts, timings, line numbers); "3 errors" → "2 errors" counts as stuck too
+    return bool(a) and _norm(a) == _norm(b)
+
+
+def _detect_stuck(fn: Callable) -> Callable:
+    def verify(state: WorkerState) -> dict:
+        out = fn(state)
+        return out | {"stuck": not out.get("verify_ok") and same_failure(state.get("last_failure") or "",
+                                                                         out.get("last_failure") or "")}
+    return verify
 
 
 def _linear(nxt: str) -> Callable[[WorkerState], str]:
@@ -151,14 +179,16 @@ def build_worker(nodes: dict[str, Callable], step: bool = False):
         if name in RETRYING:
             g.add_node(name, nodes[name], retry_policy=RetryPolicy(max_attempts=3, retry_on=CalledProcessError))
         else:
-            g.add_node(name, _safe(nodes[name]))
+            g.add_node(name, _safe(_detect_stuck(nodes[name]) if name == "verify" else nodes[name]))
     g.add_node("clarify", clarify)  # not _safe: the interrupt must propagate
+    g.add_node("replan", replan)
     g.add_edge(START, "preflight")
     for src, nxt in LINEAR.items():
         g.add_conditional_edges(src, _linear(nxt), sorted({nxt, "report"}))
     g.add_conditional_edges("plan", after_plan, ["clarify", "setup", "report"])
     g.add_conditional_edges("clarify", after_clarify, ["plan", "report"])
-    g.add_conditional_edges("verify", after_verify, ["open_pr", "implement", "report"])
+    g.add_conditional_edges("verify", after_verify, ["open_pr", "implement", "replan", "report"])
+    g.add_edge("replan", "plan")
     g.add_edge("report", END)
     # no checkpointer: inherits the parent's, each Send gets its own namespace worker:<task id>
     return g.compile(interrupt_before=[*WORKER_NODES, "clarify"] if step else None)
