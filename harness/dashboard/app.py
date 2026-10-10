@@ -1,6 +1,7 @@
 import asyncio
 import json
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -81,7 +82,7 @@ def local_origin(request: Request) -> bool:
 
 
 def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs, merge=traces.merge_pr,
-               live_quota=quota.fetch) -> FastAPI:
+               live_quota=quota.fetch, resolve=traces.resolve_changelog_conflict) -> FastAPI:
     from ..cli import open_db
 
     app = FastAPI(title="harness")
@@ -94,12 +95,33 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         return {p.stem: p for p in sorted((home / "scenarios").glob("*.yaml"))}
 
     pr_cache: dict[Path, tuple[float, list | None]] = {}
+    tried: set[tuple] = set()  # (repo, PR, head commit): a failed rebase is not retried until the branch moves
+    resolve_lock = threading.Lock()
 
     def cached_prs(path: Path) -> list | None:
         hit = pr_cache.get(path)
         if hit is None or time.time() - hit[0] > PR_CACHE_SECONDS:
             hit = pr_cache[path] = (time.time(), prs(path) if path.exists() else None)
+            resolve_conflicts(path, hit[1] or [])
         return hit[1]
+
+    def resolve_conflicts(path: Path, pulls: list) -> None:
+        """Every harness PR appends to CHANGELOG.md, so the others conflict whenever one merges (from here or
+        GitHub); rebase them in the background so the conflict tag clears without a merge click."""
+        for pr in pulls:
+            key = (path, pr["number"], pr.get("headRefOid"))
+            if traces.changelog_fixable(pr) and key not in tried:
+                tried.add(key)
+                threading.Thread(target=resolve_one, args=(path, pr), daemon=True).start()
+
+    def resolve_one(path: Path, pr: dict) -> None:
+        with resolve_lock:  # one rebase per serve at a time: they share the repo's fetch and worktree list
+            try:
+                resolve(path, pr["headRefName"], pr["baseRefName"])
+            except (RuntimeError, OSError) as e:
+                print(f"PR #{pr['number']} in {path}: {e}", file=sys.stderr)
+                return
+        pr_cache.pop(path, None)
 
     def run_sim(sim: Simulation, inputs) -> None:
         with sim.lock:

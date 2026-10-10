@@ -172,7 +172,8 @@ def open_prs(repo_dir) -> list[dict] | None:
     """Open PRs of the repo checked out in repo_dir; None when gh fails."""
     try:
         out = _gh(["pr", "list", "--state", "open", "--json",
-                   "number,title,url,isDraft,createdAt,mergeable,statusCheckRollup"], repo_dir)
+                   "number,title,url,isDraft,createdAt,mergeable,statusCheckRollup,"
+                   "headRefName,baseRefName,headRefOid"], repo_dir)
     except (OSError, subprocess.TimeoutExpired) as e:
         print(f"gh pr list in {repo_dir}: {type(e).__name__}: {e}", file=sys.stderr)
         return None
@@ -246,6 +247,11 @@ def _rebase_keeping_changelogs(wt: Path, onto: str) -> None:
         out = _git(["-c", "core.editor=true", "rebase", "--continue"], wt)
 
 
+def changelog_fixable(pr: dict) -> bool:
+    """A conflicting harness PR: worth a rebase that keeps both CHANGELOG entries (user branches are left alone)."""
+    return pr.get("mergeable") == "CONFLICTING" and str(pr.get("headRefName", "")).startswith("harness/")
+
+
 def resolve_changelog_conflict(repo_dir, branch: str, base: str) -> None:
     """Rebase a PR branch onto origin/base in a throwaway worktree and force-push it; a conflict only in
     CHANGELOG.md keeps both entries, any other conflict raises RuntimeError and pushes nothing."""
@@ -275,7 +281,7 @@ def merge_pr(repo_dir, number: int) -> str:
                                "state,isDraft,headRefName,baseRefName,mergeable"], repo_dir)))
     if pr["state"] != "OPEN":
         raise RuntimeError(f"PR #{number} is {pr['state'].lower()}")
-    if pr.get("mergeable") == "CONFLICTING" and pr["headRefName"].startswith("harness/"):
+    if changelog_fixable(pr):
         resolve_changelog_conflict(repo_dir, pr["headRefName"], pr["baseRefName"])
         _wait_mergeable(repo_dir, number)
     if pr["isDraft"]:

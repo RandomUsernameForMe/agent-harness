@@ -205,6 +205,37 @@ def test_merge_pr_endpoint(tmp_path):
     assert merged == [("a", 7)]
 
 
+def test_overview_resolves_conflicting_harness_prs_in_background(tmp_path):
+    import threading
+    (tmp_path / "a").mkdir()
+    (tmp_path / "projects.yaml").write_text("projects:\n  alpha: {path: a, base: main, verify: [x]}\n", encoding="utf-8")
+    pr = {"mergeable": "CONFLICTING", "baseRefName": "main", "headRefOid": "s1"}
+    listed, resolved, done = [], [], threading.Event()
+    prs = lambda path: listed.append(path) or [
+        pr | {"number": 1, "headRefName": "harness/t-1"},
+        pr | {"number": 2, "headRefName": "harness/t-2"},
+        pr | {"number": 3, "headRefName": "user-branch"},
+        pr | {"number": 4, "headRefName": "harness/t-4", "mergeable": "MERGEABLE"}]
+
+    def resolve(path, branch, base):
+        resolved.append((path.name, branch, base))
+        if len(resolved) == 2:
+            done.set()
+        if branch == "harness/t-2":
+            raise RuntimeError("konflikt mimo CHANGELOG.md: a.txt")
+    client = TestClient(create_app(tmp_path, prs=prs, resolve=resolve))
+    client.get("/overview")
+    assert done.wait(5)
+    assert sorted(resolved) == [("a", "harness/t-1", "main"), ("a", "harness/t-2", "main")]
+    for _ in range(50):  # the successful resolve drops the cache after it returns
+        client.get("/overview")
+        if len(listed) == 2:
+            break
+        time.sleep(0.05)
+    assert len(listed) == 2
+    assert len(resolved) == 2  # same head commits: no second attempt
+
+
 def test_progress_tracks_worker_nodes(client):
     run_id = client.post("/simulate", json={"scenario": "flaky-tests", "delay": 0}).json()["run_id"]
     wait_for(client, run_id, "run_end")
