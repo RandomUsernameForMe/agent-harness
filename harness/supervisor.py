@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -59,6 +60,9 @@ WARNINGS = {
 DENY_REASON = ("SUPERVISOR: this edit would weaken an existing test, so broken code would pass. Keep the test's checks "
                "and fix the code under test. If the test itself contradicts the task, say so in your final summary "
                "instead of changing it.")
+BLOCK_REASON = ("SUPERVISOR: your changes weaken existing tests ({files}), so broken code would pass. Restore their "
+                "checks (`git diff HEAD -- <file>` shows what you changed) and fix the code under test instead. If a "
+                "test contradicts the task, say so in your final summary instead of changing it.")
 
 
 def is_test_path(path: str) -> bool:
@@ -124,6 +128,7 @@ class Watch:
         self.task = {"title": task.get("title", ""), "description": task.get("description", "")}
         self.plan, self.judge, self.cwd = _clip(plan), judge, Path(cwd)
         self.tools, self.warnings, self.stop = 0, 0, ""
+        self.base = self._git("rev-parse", "HEAD").strip() or "HEAD"  # the agent may commit during the call
 
     def hooks(self, steps: list) -> dict:
         """SDK hooks; `steps` is the call's step list — read for context, supervisor verdicts appended to it."""
@@ -133,8 +138,11 @@ class Watch:
         async def post(inp, _id, _ctx):
             return await asyncio.to_thread(self._check_progress, steps, inp)
 
+        async def stop(inp, _id, _ctx):
+            return await asyncio.to_thread(self._check_diff, steps, bool(inp.get("stop_hook_active")))
+
         return {"PreToolUse": [HookMatcher(matcher="|".join(EDIT_TOOLS), hooks=[pre])],
-                "PostToolUse": [HookMatcher(hooks=[post])]}
+                "PostToolUse": [HookMatcher(hooks=[post])], "Stop": [HookMatcher(hooks=[stop])]}
 
     def _old_text(self, tool: str, tool_input: dict) -> str:
         if tool == "Edit":
@@ -158,6 +166,39 @@ class Watch:
             return {}
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                        "permissionDecisionReason": DENY_REASON}}
+
+    def _git(self, *args: str) -> str:
+        return subprocess.run(["git", *args], cwd=self.cwd, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace").stdout
+
+    def _weakened_tests(self, steps: list) -> list[str]:
+        """Tracked test files changed since the call started, whatever tool wrote them (Bash scripts bypass the Edit
+        hook). New files are skipped: nothing existing to weaken."""
+        out = []
+        for path in filter(is_test_path, self._git("diff", self.base, "--name-only", "--no-renames").splitlines()):
+            file = self.cwd / path
+            old = self._git("show", f"{self.base}:{path}")
+            if not old.strip():  # added (and committed) during the call
+                continue
+            new = file.read_text(encoding="utf-8", errors="replace") if file.is_file() else ""
+            answer = self.judge({"task": self.task, "edit": {"file": path, "old": _clip(old), "new": _clip(new)}},
+                                WEAKENS)
+            if not answer:
+                continue
+            p = answer["weakens"]
+            _note(steps, "tests", f"{path} (diff): weakens p={p:.2f}", p >= WEAKENS_AT)
+            if p >= WEAKENS_AT:
+                out.append(path)
+        return out
+
+    def _check_diff(self, steps: list, blocked_before: bool) -> dict:
+        """First weakening sends the agent back to restore the tests; if they stay weakened, stop → replan."""
+        if self.stop or not (files := self._weakened_tests(steps)):
+            return {}
+        if blocked_before:
+            self.stop = f"weakened_tests: {', '.join(files)}"
+            return {}
+        return {"decision": "block", "reason": BLOCK_REASON.format(files=", ".join(files))}
 
     def _check_progress(self, steps: list, inp: dict) -> dict:
         self.tools += 1
