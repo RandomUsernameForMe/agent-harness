@@ -71,3 +71,4 @@
 ## [2026-10-11] - Revize čistoty kódu: tlačítko v dashboardu (discover lens cleanup → návrhy refaktorů), u projektu dny a zmergované PR od poslední revize
 ## [2026-10-11] - Dozor: 3× stejné volání se stejným výsledkem → varování, pak stop (i bez Jev); plan bez Bash/PowerShell; `plan_model` v projects.yaml (podle arXiv 2609.20804)
 ## [2026-10-11] - Úkoly z discover s ACCEPT přeskočí plánovač (plán = popis scouta, plán až při replan); plan_model: sonnet
+## [2026-10-12] - Desktop dashboard: sloupce scrollují vlastním scrollbarem (Lively nepředává kolečko)
