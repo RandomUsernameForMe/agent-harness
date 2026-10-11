@@ -18,7 +18,8 @@ def commit_files(repo, files: dict[str, str]):
 def test_scan_reads_origin_base_not_working_copy(tmp_path):
     repo = make_repo(tmp_path)
     commit_files(repo, {"src/a.ts": "x\n// TODO: handle empty album\n", "lib/b.py": "# FIXME broken on Windows\n",
-                        "c.txt": "TODOS are not markers\n", "docs/plan.md": "- TODO: list\n"})
+                        "c.txt": "TODOS are not markers\n", "docs/plan.md": "- TODO: list\n",
+                        "d.py": 'GREP = "TODO|FIXME"\n"""All TODO markers"""\n# scan TODO daily\n'})
     (repo / "wip.ts").write_text("// TODO: uncommitted\n", encoding="utf-8")
     props = scan_project(project(repo))
     assert [(p.path, p.line, p.title) for p in props] == [

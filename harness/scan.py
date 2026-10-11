@@ -9,7 +9,8 @@ from .backlog import Task
 from .nodes.real import git
 from .projects import Config, Project
 
-MARKER_RE = re.compile(r"\b(TODO|FIXME)\b[:\s-]*(.*)")
+# marker must directly follow a comment prefix, so code and prose merely mentioning it don't count
+MARKER_RE = re.compile(r"(?:#|//|/\*|<!--|--|;|^\s*\*)\s*\b(TODO|FIXME)\b[:\s-]*(.*)")
 
 
 @dataclass(frozen=True)
