@@ -2,7 +2,9 @@
 
 One run at a time, executed by `spawn` (a thread in production). The main loop long-polls Telegram and makes
 every decision, so the daemon state is only touched from one thread; the run thread just hands back its result."""
+import hashlib
 import json
+import re
 import sys
 import threading
 import time as _time
@@ -13,7 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import backlog, events, lessons, traces
-from .discover import LENSES
+from .discover import LENSES, safe_title, task_lines
 from .nodes.common import edit_backlog
 from .priority import config_focus, rank
 from .projects import Config
@@ -303,6 +305,38 @@ def _reason(ctx: Ctx, task_id: str, reason: str) -> str:
     return f"📝 {task_id}: důvod uložen, reflexe se z něj poučí."
 
 
+def _add_task(ctx: Ctx, project: str, title: str, description: str = "", done: str = "", priority: int = 2) -> str:
+    title = safe_title(title)[:100]
+    if project not in ctx.cfg.projects:
+        raise ValueError(f"neznámý projekt: {project or '(prázdný)'}")
+    if not title:
+        raise ValueError("prázdný titulek")
+    if priority not in (1, 2, 3):
+        raise ValueError("priorita musí být 1–3")
+    task_id = f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-m-{hashlib.sha1(title.encode()).hexdigest()[:6]}"
+    note = []
+
+    def change(text: str) -> str:
+        if any(t.id == task_id or t.title.casefold() == title.casefold() for t in backlog.parse(text)):
+            note.append(f"➖ {task_id}: už existuje.")
+            return text
+        lines = task_lines({"id": task_id, "title": title, "description": description, "done": " ".join(done.split())}, " ")
+        lines[0] = f"- [ ] P{priority} {task_id} {title}"
+        note.append(f"➕ {task_id} přidán do fronty [{project}].")
+        return backlog.add_tasks(text, project, lines)
+    edit_backlog(ctx.backlog_path, change)
+    return note[0]
+
+
+def _task_cmd(ctx: Ctx, text: str) -> str:
+    first, _, rest = text.partition("\n")
+    parts = first.split(maxsplit=2)
+    try:
+        return _add_task(ctx, parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else "", rest)
+    except ValueError as e:
+        return f"❌ {e}"
+
+
 # --- lessons ----------------------------------------------------------------------------------------------
 
 def _notify_lessons(ctx: Ctx) -> None:
@@ -473,7 +507,8 @@ def handle(ctx: Ctx, update: dict) -> None:
     if msg.get("chat", {}).get("id") != ctx.bot.chat_id or not (text := (msg.get("text") or "").strip()):
         return
     if text.startswith("/"):
-        reply = _command(ctx, text.split()[0][1:].split("@")[0].lower())
+        cmd = text.split()[0][1:].split("@")[0].lower()
+        reply = _task_cmd(ctx, text) if cmd == "task" else _command(ctx, cmd)
     else:
         reply = _answer(ctx, msg, text)
     if reply:
@@ -539,6 +574,10 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
             reply = _approve_plan(ctx, data.get("keep"))
         elif action == "answer":
             reply = _web_answer(ctx, str(data.get("id")), str(data.get("text") or ""))
+        elif action == "add":
+            reply = _add_task(ctx, str(data.get("project") or ""), str(data.get("title") or ""),
+                              str(data.get("description") or ""), str(data.get("done") or ""),
+                              int(data.get("priority") or 2))
         elif action in ("pause", "resume"):
             reply = _command(ctx, action)
         else:
