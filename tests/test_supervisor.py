@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 
 from harness import supervisor
 from harness.graph import after_verify, replan
@@ -110,3 +111,53 @@ def test_supervisor_stop_goes_to_replan_with_reason():
     assert after_verify(s | {"replanned": True}) == "report"
     out = replan(s)
     assert out["supervisor_stop"] == "" and "repeating" in out["last_failure"] and "tsc" in out["last_failure"]
+
+
+def test_supervisor_stop_overrides_passing_verify():
+    s = {"verify_ok": True, "attempts": 1, "supervisor_stop": "weakened_tests: lib/a.test.mjs"}
+    assert after_verify(s) == "replan"
+
+
+def git_repo(tmp_path):
+    def run(*args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=tmp_path, check=True,
+                       capture_output=True)
+    run("init", "-q")
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib/a.test.mjs").write_text("assert.equal(f(4), 4)\nassert.ok(ok)\n", encoding="utf-8")
+    (tmp_path / "lib/a.mjs").write_text("export const f = x => x\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-qm", "base")
+    return run
+
+
+def stop(watch, steps, active=False):
+    hook = watch.hooks(steps)["Stop"][0].hooks[0]
+    return asyncio.run(hook({"hook_event_name": "Stop", "stop_hook_active": active}, None, None))
+
+
+def test_diff_catches_test_weakened_outside_edit_tool_blocks_then_stops(tmp_path):
+    git_repo(tmp_path)
+    judge, calls = judge_of({"weakens": 0.9})
+    w, steps = Watch(TASK, "plan", judge, tmp_path), []
+    (tmp_path / "lib/a.test.mjs").write_text("assert.ok(ok)\n", encoding="utf-8")  # e.g. a python script via Bash
+    (tmp_path / "lib/new.test.mjs").write_text("test()\n", encoding="utf-8")  # untracked: not judged
+    first = stop(w, steps)
+    assert first["decision"] == "block" and "lib/a.test.mjs" in first["reason"] and w.stop == ""
+    assert len(calls) == 1 and calls[0][0]["edit"]["old"].startswith("assert.equal(f(4), 4)")
+    assert steps[-1]["kind"] == "supervisor" and steps[-1]["is_error"]
+    assert stop(w, steps, active=True) == {} and w.stop.startswith("weakened_tests: lib/a.test.mjs")
+
+
+def test_diff_sees_commits_made_during_the_call_and_passes_honest_changes(tmp_path):
+    run = git_repo(tmp_path)
+    judge, calls = judge_of({"weakens": 0.05})
+    w, steps = Watch(TASK, "plan", judge, tmp_path), []
+    (tmp_path / "lib/a.test.mjs").write_text("assert.equal(f(4), 4)\nassert.ok(ok)\nassert.ok(f(0) === 0)\n",
+                                             encoding="utf-8")
+    (tmp_path / "lib/a.mjs").write_text("export const f = x => x + 0\n", encoding="utf-8")
+    (tmp_path / "lib/b.test.mjs").write_text("test()\n", encoding="utf-8")  # new and committed: not judged
+    run("add", "-A")
+    run("commit", "-qm", "agent commit")
+    assert stop(w, steps) == {} and w.stop == ""
+    assert [c[0]["edit"]["file"] for c in calls] == ["lib/a.test.mjs"]  # source file not judged

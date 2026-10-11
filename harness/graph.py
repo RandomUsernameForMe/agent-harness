@@ -114,7 +114,7 @@ def clarify(state: WorkerState) -> dict:
 def after_verify(state: WorkerState) -> str:
     if state.get("outcome"):
         return "report"
-    if state.get("verify_ok"):
+    if state.get("verify_ok") and not state.get("supervisor_stop"):  # weakened tests pass verify too
         return "open_pr"
     if not state.get("stuck") and not state.get("supervisor_stop") \
             and state.get("attempts", 0) < state.get("max_attempts", 3):

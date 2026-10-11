@@ -55,6 +55,7 @@ Když chyba leží v promptu harnessu (worker by selhal v jakémkoli projektu), 
 
 Implementujícího agenta hlídá přes hooky Agent SDK model Jev (TypeSafe, `POST /v1/systemone`, klíč v env `TYPESAFE_API_KEY` nebo `JEV_API_KEY`):
 - **Úprava existujícího testu:** před každým Edit/Write testovacího souboru se Jev zeptá, jestli úprava oslabuje kontrolu (smazaný assert, `.skip`, očekávaná hodnota přepsaná na výsledek kódu). Při p ≥ 0.7 se úprava zakáže a agent dostane důvod.
+- **Diff testů na konci:** agenti často píšou soubory skriptem přes Bash, tím Edit/Write hook obejdou. Když agent končí, Jev stejnou otázkou posoudí každý existující testový soubor změněný od začátku volání (`git diff`, i commitnuté). Při oslabení se agent jednou vrátí test obnovit. Když oslabení zůstane, zastaví se a úkol jde na `replan` (ani prošlé verify PR neotevře).
 - **Postup:** každých 8 nástrojů Jev posoudí poslední kroky: postupuje / opakuje stejnou chybu / mimo plán / obchází problém. Při prvním problémovém verdiktu (confidence ≥ 0.6) agent dostane varování, při druhé se zastaví a úkol jde rovnou na `replan` s důvodem.
 
 Verdikty jsou kroky `supervisor` u volání v dashboardu. Bez klíče nebo při chybě Jev mlčí a harness běží jako dřív.

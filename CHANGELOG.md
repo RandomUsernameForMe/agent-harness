@@ -67,3 +67,4 @@
 ## [2026-10-11] - Dashboard: max úkolů a paralelismus nastavitelné pro jeden běh (výchozí z projects.yaml)
 ## [2026-10-11] - ruční zadání úkolu (dashboard "+ úkol", Telegram /task)
 ## [2026-10-11] - Dozor Jev nad implement: zákaz oslabení testů, varování/stop při zacyklení → replan
+## [2026-10-11] - Dozor Jev: kontrola diffu testů při konci implement (zápis přes Bash obcházel Edit hook)
