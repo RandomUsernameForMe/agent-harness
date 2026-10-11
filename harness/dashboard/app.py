@@ -82,7 +82,8 @@ def local_origin(request: Request) -> bool:
 
 
 def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs, merge=traces.merge_pr,
-               live_quota=quota.fetch, resolve=traces.resolve_changelog_conflict) -> FastAPI:
+               live_quota=quota.fetch, resolve=traces.resolve_changelog_conflict,
+               merged=traces.merged_since) -> FastAPI:
     from ..cli import open_db
 
     app = FastAPI(title="harness")
@@ -104,6 +105,17 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
             hit = pr_cache[path] = (time.time(), prs(path) if path.exists() else None)
             resolve_conflicts(path, hit[1] or [])
         return hit[1]
+
+    merged_cache: dict[tuple, tuple[float, int | None]] = {}
+
+    def cleanup_of(path: Path, ts: float | None) -> dict | None:
+        """Last cleanup review of a project and how many PRs merged since; None = never reviewed."""
+        if ts is None:
+            return None
+        hit = merged_cache.get((path, ts))
+        if hit is None or time.time() - hit[0] > PR_CACHE_SECONDS:
+            hit = merged_cache[(path, ts)] = (time.time(), merged(path, ts) if path.exists() else None)
+        return {"ts": ts, "prs": hit[1]}
 
     def resolve_conflicts(path: Path, pulls: list) -> None:
         """Every harness PR appends to CHANGELOG.md, so the others conflict whenever one merges (from here or
@@ -140,9 +152,12 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         cfg = load_config(home / "projects.yaml")  # every request: new projects show up without a restart
         path = home / "BACKLOG.md"
         tasks = backlog.parse(path.read_bytes().decode("utf-8")) if path.exists() else []
+        last = events.last_cleanups(conn)
+        paths = [p.path for p in cfg.projects.values()]
         with ThreadPoolExecutor() as pool:
-            pulls = dict(zip(cfg.projects, pool.map(cached_prs, [p.path for p in cfg.projects.values()])))
-        projects = [{"name": name, "prs": pulls[name],
+            pulls = dict(zip(cfg.projects, pool.map(cached_prs, paths)))
+            cleanups = dict(zip(cfg.projects, pool.map(cleanup_of, paths, [last.get(n) for n in cfg.projects])))
+        projects = [{"name": name, "prs": pulls[name], "cleanup": cleanups[name],
                      "counts": {s: sum(t.project == name and t.status == s for t in tasks) for s in " ~x?-"}}
                     for name in cfg.projects]
         proposals = [asdict(t) for t in tasks if t.status == "~"]

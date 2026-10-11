@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from harness import events
 from harness.dashboard.app import create_app
 
 ROOT = Path(__file__).parent.parent
@@ -172,6 +173,23 @@ def test_overview_reads_projects_yaml_every_request(tmp_path):
     assert len(calls) == 1  # alpha cached
     assert body["boot"] == client.get("/overview").json()["boot"]
     assert TestClient(create_app(tmp_path, prs=prs)).get("/overview").json()["boot"] != body["boot"]
+
+
+def test_overview_counts_merged_prs_since_last_cleanup(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "projects.yaml").write_text("projects:\n  alpha: {path: a, base: main, verify: [x]}\n"
+                                            "  beta: {path: a, base: main, verify: [x]}\n", encoding="utf-8")
+    conn = events.connect(tmp_path / "harness.db")
+    events.log(conn, "go-1", "end", node="discover", worker="alpha", delta={"proposals": 1, "cleanup": True})
+    events.log(conn, "go-2", "end", node="discover", worker="alpha", delta={"proposals": 0, "cleanup": False})
+    events.log(conn, "go-2", "end", node="discover", worker="beta", delta={"proposals": 0, "cleanup": False})
+    (ts,) = events.last_cleanups(conn).values()
+    asked = []
+    merged = lambda path, since: asked.append(since) or 4
+    body = TestClient(create_app(tmp_path, prs=lambda p: [], merged=merged)).get("/overview").json()
+    alpha, beta = body["projects"]
+    assert alpha["cleanup"] == {"ts": ts, "prs": 4} and asked == [ts]  # go-2 did not run the cleanup lens
+    assert beta["cleanup"] is None
 
 
 def test_control_needs_serve_and_local_origin(client):

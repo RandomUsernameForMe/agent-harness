@@ -10,6 +10,8 @@ discover:
       - {title: "Opravit odkaz v patičce", kind: bug, why: "vede na 404", done: "odkaz vede na /kontakt"}
     features:
       - {title: "Export galerie do ZIP", why: "klienti chtějí stáhnout vše najednou", done: "tlačítko stáhne ZIP"}
+    cleanup:
+      - {title: "Rozdělit render() v app.ts", why: "200 řádků, míchá data a UI", done: "render() rozdělená, testy beze změny zelené"}
 nodes:
   # 1-based indexy kandidátů: návrhy seřazené podle projektu, pak otevřené úkoly z BACKLOGu
   prioritize: {pick: [3, 1, 4]}

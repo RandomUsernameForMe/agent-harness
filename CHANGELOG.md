@@ -68,3 +68,4 @@
 ## [2026-10-11] - ruční zadání úkolu (dashboard "+ úkol", Telegram /task)
 ## [2026-10-11] - Dozor Jev nad implement: zákaz oslabení testů, varování/stop při zacyklení → replan
 ## [2026-10-11] - Dozor Jev: kontrola diffu testů při konci implement (zápis přes Bash obcházel Edit hook)
+## [2026-10-11] - Revize čistoty kódu: tlačítko v dashboardu (discover lens cleanup → návrhy refaktorů), u projektu dny a zmergované PR od poslední revize

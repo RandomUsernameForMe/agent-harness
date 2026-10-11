@@ -6,7 +6,7 @@ HEADER_RE = re.compile(r"^## (?P<project>\S+)\s*$")
 TASK_RE = re.compile(r"^- \[(?P<status>[ x!?~-])\] P(?P<prio>[1-3]) (?P<id>[A-Za-z0-9._-]+) (?P<rest>.+)$")
 SUFFIX_RE = re.compile(r" (?:→|—) ")
 # proposal kind as a title prefix: "- [~] P2 id [feature] Title"; set_status keeps it untouched
-KIND_RE = re.compile(r"^\[(?P<kind>test|bug|debt|feature|docs)\] (?P<title>.+)$")
+KIND_RE = re.compile(r"^\[(?P<kind>test|bug|debt|feature|docs|refactor)\] (?P<title>.+)$")
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,7 @@ class Task:
     status: str
     description: str
     note: str = ""  # suffix of a finished task: PR url, failure, rejection reason
-    kind: str = ""  # test|bug|debt|feature|docs; "" = written by hand or before kinds existed
+    kind: str = ""  # test|bug|debt|feature|docs|refactor; "" = written by hand or before kinds existed
 
 
 def _split(rest: str, status: str) -> tuple[str, str]:

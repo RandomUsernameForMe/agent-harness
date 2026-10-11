@@ -8,7 +8,8 @@ from .backlog import Task
 from .priority import rank
 
 FIX_KINDS = ("test", "bug", "debt", "docs")
-LENSES = ("fix", "feature")  # one discover prompt each: discover_fix.md, discover_feature.md
+LENSES = ("fix", "feature", "cleanup")  # one discover prompt each: discover_<lens>.md
+DEFAULT_LENSES = ("fix", "feature")  # cleanup (whole-repo review) runs only on request
 MAX_PROPOSALS = 5  # per lens
 NEW_PRIORITY = 2
 FENCE_RE = re.compile(r"```(?:json)?\s*(\[.*?\])\s*```", re.DOTALL)
@@ -50,8 +51,8 @@ def proposal_id(project: str, title: str) -> str:
 
 
 def _kind(item: dict, lens: str) -> str:
-    if lens == "feature":
-        return "feature"
+    if lens != "fix":
+        return {"feature": "feature", "cleanup": "refactor"}[lens]
     return item.get("kind") if item.get("kind") in FIX_KINDS else "debt"
 
 

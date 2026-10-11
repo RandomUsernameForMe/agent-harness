@@ -91,7 +91,7 @@ def fake_nodes(script: Script) -> dict:
 
 
 def fake_explore(script: Script) -> Callable:
-    """Scenario `discover: {project: {proposals: [...], features: [...]}}`; a list value advances per discover
+    """Scenario `discover: {project: {proposals: [...], features: [...], cleanup: [...]}}`; a list value advances per discover
     of that project. The first lens of a discover draws the value; the feature lens right after fix reuses it."""
     drawn: dict[str, dict] = {}
     last: dict[str, str] = {}
@@ -102,7 +102,7 @@ def fake_explore(script: Script) -> Callable:
             script.lessons_seen[project] = lessons.active_texts(lessons.current_store(), project)
             drawn[project] = script.next("discover", project)
         last[project] = lens
-        v = drawn[project].get("proposals" if lens == "fix" else "features", [])
+        v = drawn[project].get({"fix": "proposals", "feature": "features"}.get(lens, lens), [])
         return json.dumps(v, ensure_ascii=False), {"usage": _usage("discover", "opus")}
     return explore
 

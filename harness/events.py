@@ -82,6 +82,15 @@ def latest_utilization(conn, simulated: bool) -> dict | None:
     return None
 
 
+def last_cleanups(conn, simulated: bool = False) -> dict[str, float]:
+    """Project → ts of its last discover whose cleanup lens went through (runner logs delta.cleanup)."""
+    with _lock:
+        rows = conn.execute("SELECT worker, MAX(ts) AS ts FROM events WHERE node = 'discover' AND kind = 'end' "
+                            "AND simulated = ? AND json_extract(delta, '$.cleanup') = 1 GROUP BY worker",
+                            (int(simulated),)).fetchall()
+    return {r["worker"]: r["ts"] for r in rows}
+
+
 def runs(conn) -> list[dict]:
     with _lock:
         rows = conn.execute("""

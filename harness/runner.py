@@ -21,6 +21,7 @@ class _Logger:
     def __init__(self, conn, run_id: str, simulated: bool):
         self.conn, self.run_id, self.simulated = conn, run_id, simulated
         self.workers: dict[str, str] = {}  # parent task id → backlog task id
+        self.discovers: dict[str, dict] = {}  # discover task id → its Send input {project, lenses}
 
     def log(self, kind: str, **kw) -> None:
         events.log(self.conn, self.run_id, kind, simulated=self.simulated, **kw)
@@ -35,19 +36,23 @@ class _Logger:
                 self.workers[payload["id"]] = (payload.get("input") or {}).get("task", {}).get("id")
             return
         if not ns and payload["name"] == "discover" and not payload.get("error"):
-            # only the "task" event carries the Send input; remember the project for its task_result
+            # only the "task" event carries the Send input; remember project + lenses for its task_result
             if ev["type"] == "task":
-                self.workers[payload["id"]] = (payload.get("input") or {}).get("project")
-            project = self.workers.get(payload["id"])
+                self.discovers[payload["id"]] = payload.get("input") or {}
+            send = self.discovers.get(payload["id"]) or {}
+            project = send.get("project")
             if ev["type"] == "task":
                 self.log("start", node="discover", worker=project)
             else:
                 result = payload.get("result") or {}
                 if not isinstance(result, dict):
                     result = {}
-                self.log("end", node="discover", worker=project,
-                         delta={"proposals": len(result.get("proposals") or []), "go_errors": result.get("go_errors")},
-                         usage=result.get("usage") or None)
+                # the dashboard counts days and merged PRs since the last cleanup review that went through
+                cleanup = "cleanup" in (send.get("lenses") or []) and \
+                    not any(e.startswith(f"{project}/cleanup") for e in result.get("go_errors") or [])
+                self.log("end", node="discover", worker=project, usage=result.get("usage") or None,
+                         delta={"proposals": len(result.get("proposals") or []), "go_errors": result.get("go_errors"),
+                                "cleanup": cleanup})
             return
         worker = None
         if ns:

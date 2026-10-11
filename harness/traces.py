@@ -183,6 +183,21 @@ def open_prs(repo_dir) -> list[dict] | None:
     return [pr | {"ci": ci_state(pr.pop("statusCheckRollup", None) or [])} for pr in json.loads(out.stdout or "[]")]
 
 
+def merged_since(repo_dir, ts: float) -> int | None:
+    """Number of PRs merged into the repo after ts; None when gh fails."""
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+    try:
+        out = _gh(["pr", "list", "--state", "merged", "--search", f"merged:>{since}",
+                   "--limit", "1000", "--json", "number"], repo_dir)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"gh pr list --state merged in {repo_dir}: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    if out.returncode != 0:
+        print(f"gh pr list --state merged in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
+        return None
+    return len(json.loads(out.stdout or "[]"))
+
+
 def _gh(args: list[str], cwd) -> subprocess.CompletedProcess:
     return subprocess.run(["gh", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
 
