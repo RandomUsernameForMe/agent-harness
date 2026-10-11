@@ -166,3 +166,11 @@ def test_go_quota_spent_by_discover_stops_workers(tmp_path):
     app.invoke(Command(resume={asked.id: [0, 1]}), config)
     assert not workers
     assert set(read(bp).values()) == {" "}  # approved, left for a run after the quota resets
+
+
+def test_discover_default_skips_cleanup_lens(tmp_path):
+    bp = tmp_path / "BACKLOG.md"
+    write(bp, "")
+    calls = []
+    make_discover(bp, lambda n, k, lens: (calls.append(lens) or "[]", {}))({"project": "demo"})
+    assert calls == ["fix", "feature"]

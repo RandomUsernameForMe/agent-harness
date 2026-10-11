@@ -7,7 +7,7 @@ from langgraph.types import interrupt
 
 from .. import backlog, lessons
 from ..backlog import Task
-from ..discover import LENSES, apply_approval, candidates, fallback_plan, json_array, parse_proposals, parse_ranking
+from ..discover import DEFAULT_LENSES, apply_approval, candidates, fallback_plan, json_array, parse_proposals, parse_ranking
 from ..graph import RateLimited
 from ..priority import config_focus, pick_batch, rank
 from ..projects import Config
@@ -73,14 +73,14 @@ def _spent(agent: dict) -> dict:
 
 
 def make_discover(backlog_path: Path, explore: Callable[[str, list[Task], str], tuple[str, dict]]):
-    """Proposals of one project (Send payload {"project", "lenses"}), one explore call per lens (fixes, features).
+    """Proposals of one project (Send payload {"project", "lenses"}), one explore call per lens (fixes, features, cleanup).
     A failure costs only that lens of this project. `explore` returns the model's answer and {"usage", "quota"}."""
     def discover(state: dict) -> dict:
         name = state["project"]
         with _backlog_lock:
             known = [t for t in backlog.parse(_read(backlog_path)) if t.project == name]
         out: dict = {"proposals": [], "go_errors": [], "usage": [], "quota": None}
-        for lens in state.get("lenses") or LENSES:
+        for lens in state.get("lenses") or DEFAULT_LENSES:
             seen = known + _as_tasks(out["proposals"])
             try:
                 text, agent = explore(name, seen, lens)

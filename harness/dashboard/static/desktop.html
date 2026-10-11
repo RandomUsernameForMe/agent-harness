@@ -68,7 +68,7 @@
   label.chip:has(input:checked) { border-color:var(--accent); }
   .tag.ok { border-color:var(--ok); color:var(--ok); } .tag.fail { border-color:var(--bad); color:var(--bad); }
   li.pr button { padding:1px 8px; font-size:13px; }
-  .actions { display:grid; gap:12px; grid-template-columns:1fr 1fr; }
+  .actions { display:grid; gap:12px; grid-template-columns:repeat(3, 1fr); }
   @media (max-width:700px) { .actions { grid-template-columns:1fr; } }
   button.action { display:grid; gap:4px; text-align:left; padding:14px 16px; border-radius:10px; border-width:2px; }
   button.action b { font-size:17px; }
@@ -110,6 +110,8 @@
           <b>▶ Zpracovat frontu</b><span id="runSub">Implementuje úkoly [ ] z BACKLOGu a otevře PR</span></button>
         <button class="action" data-act="go" data-path="discover prioritize approve pick_tasks worker reflect">
           <b>🔍 Najít a naplánovat</b><span>Opus projde projekty, navrhne úkoly; plán schválíš tady, pak je zpracuje</span></button>
+        <button class="action" data-act="go" data-lenses="cleanup" data-path="discover prioritize approve pick_tasks worker reflect">
+          <b>🧹 Revize čistoty kódu</b><span>Opus projde celé repo, najde spaghetti a navrhne refaktory; plán schválíš tady</span></button>
       </div>
       <div class="row" id="scope" style="margin-top:10px"></div>
       <div class="row" id="lenses" style="margin-top:6px; font-size:13px"><span class="muted">Hledat:</span>
@@ -176,11 +178,12 @@ function renderLimits(defaults) {
   if ($("maxParallel").value === "") $("maxParallel").value = defaults.max_parallel;
 }
 
-function runBody(action) {
-  // both lenses checked → no filter; only "go" discovers, so only it carries lenses
+function runBody(button) {
+  // the cleanup button carries its own lens; both checkboxes checked → no filter; only "go" discovers
   const boxes = [...$("lenses").querySelectorAll("input")];
   const body = {...scoped(), ...limits()};
-  return action === "go" && !boxes.every(c => c.checked)
+  if (button.dataset.lenses) return {...body, lenses: button.dataset.lenses.split(" ")};
+  return button.dataset.act === "go" && !boxes.every(c => c.checked)
     ? {...body, lenses: boxes.filter(c => c.checked).map(c => c.value)} : body;
 }
 
@@ -282,11 +285,10 @@ function renderFlow(p, run) {
         : `<span class="tag ${w.outcome === "pr_opened" ? "ok" : "fail"}">${OUTCOME[w.outcome] || esc(w.outcome)}</span>`) : ""}</div>`).join("");
   $("flowHint").textContent = run.id ? `${run.id}: ${RUN_STATUS[run.status] || run.status}` : "Zatím žádný běh. Najeď na tlačítko a uvidíš, kudy půjde.";
   hint = $("flowHint").textContent;
-  const hovered = document.querySelector(`button.action[data-act="${$("flow").dataset.preview}"]`);
-  if (hovered) preview(hovered);  // a refresh under the mouse keeps the preview
+  if ($("flow").dataset.preview && hovered) preview(hovered);  // a refresh under the mouse keeps the preview
 }
 
-let hint = "";
+let hint = "", hovered = null;
 async function refreshFlow(run) {
   if (!run) return renderFlow({stages: {}, discover: {}, workers: []}, {});
   try { renderFlow(await (await fetch(`/runs/${encodeURIComponent(run.id)}/progress`)).json(), run); } catch (e) {}
@@ -294,14 +296,18 @@ async function refreshFlow(run) {
 
 function preview(button) {
   const path = button.dataset.path.split(" ");
+  hovered = button;
   $("flow").dataset.preview = button.dataset.act;
   $("pipe").querySelectorAll(".stage").forEach(el => el.classList.toggle("on-preview", path.includes(el.dataset.stage)));
   $("flowHint").textContent = button.dataset.act === "run"
     ? "Vezme úkoly [ ] z vybraných projektů podle priority, pro každý: worktree → plán → implementace → testy → PR. Nakonec reflexe."
+    : button.dataset.lenses
+    ? "Opus zreviduje celé repo vybraných projektů (zamotaný kód, duplicity, mrtvý kód) a navrhne refaktory bez změny chování. Plán schválíš, pak z nich udělá PR."
     : "Opus projde vybrané projekty a navrhne úkoly, seřadí je a počká, až plán schválíš. Schválené pak zpracuje jako frontu.";
 }
 
 function unpreview() {
+  hovered = null;
   delete $("flow").dataset.preview;
   $("flowHint").textContent = hint;
 }
@@ -343,18 +349,28 @@ function renderQuestions(qs) {
 }
 
 function proposalList(props) {
-  const features = props.filter(t => t.kind === "feature"), fixes = props.filter(t => t.kind !== "feature");
-  return proposalGroup("Návrhy: nové features", features) + proposalGroup("Návrhy: bugy a opravy", fixes);
+  const of = kinds => props.filter(t => kinds.includes(t.kind));
+  const fixes = props.filter(t => !["feature", "refactor"].includes(t.kind));
+  return proposalGroup("Návrhy: nové features", of(["feature"])) + proposalGroup("Návrhy: bugy a opravy", fixes)
+    + proposalGroup("Návrhy: úklid kódu", of(["refactor"]));
 }
 
 function proposalGroup(heading, props) {
   if (!props.length) return "";
   return `<h4>${heading}</h4><ul>${props.map(t => `<li class="prop">
       <details><summary title="${esc(t.title)}"><span class="muted">P${t.priority}</span>
-        ${t.kind && t.kind !== "feature" ? `<span class="tag">${esc(t.kind)}</span>` : ""} ${esc(t.title)}</summary>
+        ${t.kind && !["feature", "refactor"].includes(t.kind) ? `<span class="tag">${esc(t.kind)}</span>` : ""} ${esc(t.title)}</summary>
       ${t.description ? `<p>${esc(t.description)}</p>` : ""}</details>
       <button data-task="${esc(t.id)}" data-do="approve" title="Schválit → fronta" aria-label="Schválit" ${serveOn ? "" : "disabled"}>✅</button>
       <button data-task="${esc(t.id)}" data-do="reject" title="Zamítnout" aria-label="Zamítnout" ${serveOn ? "" : "disabled"}>❌</button></li>`).join("")}</ul>`;
+}
+
+function cleanupInfo(c) {
+  if (!c) return `<span class="muted" title="Revize čistoty kódu zatím neproběhla">🧹 bez revize</span>`;
+  const days = Math.floor((Date.now() / 1000 - c.ts) / 86400);
+  const prs = c.prs === null ? "? PR" : `<b>${c.prs}</b> PR`;
+  return `<span title="Poslední revize čistoty kódu ${new Date(c.ts * 1000).toLocaleDateString("cs")}; PR = zmergované od té doby">
+    🧹 <b>${days}</b> ${days === 1 ? "den" : days >= 2 && days <= 4 ? "dny" : "dní"} · ${prs} od revize</span>`;
 }
 
 function renderProjects(projects, proposals) {
@@ -372,7 +388,8 @@ function renderProjects(projects, proposals) {
       : `<span class="muted">žádné otevřené PR</span>`;
     return `<section><h3>${esc(p.name)}</h3>
       <div class="counts"><span><b>${c[" "]}</b> ve frontě</span><span><b>${c["~"]}</b> návrhů</span>
-        <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}</div>
+        <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}
+        ${cleanupInfo(p.cleanup)}</div>
       ${prs}${proposalList(proposals.filter(t => t.project === p.name))}
       <details><summary>+ úkol</summary>
         <form data-add="${esc(p.name)}" class="row" style="flex-wrap:wrap">
@@ -485,7 +502,7 @@ async function refreshUsage() {
 }
 
 document.querySelectorAll("button.action").forEach(b => {
-  b.onclick = () => act(b.dataset.act, runBody(b.dataset.act));
+  b.onclick = () => act(b.dataset.act, runBody(b));
   b.onmouseenter = b.onfocus = () => preview(b);
   b.onmouseleave = b.onblur = unpreview;
 });

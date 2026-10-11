@@ -138,3 +138,8 @@ def test_rejected_proposal_keeps_full_title():
     text = backlog.set_status(text, props[0]["id"], "-", " — zamítnuto: x")
     (t,) = backlog.parse(text)
     assert (t.status, t.title, t.note) == ("-", "Validace – vstupu API", "zamítnuto: x")
+
+
+def test_parse_proposals_cleanup_lens_is_refactor():
+    text = '[{"title": "Rozdělit serve.act", "kind": "bug"}]'
+    assert [p["kind"] for p in parse_proposals(text, "demo", [], "cleanup")] == ["refactor"]

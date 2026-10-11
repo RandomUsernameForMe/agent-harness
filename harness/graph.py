@@ -61,7 +61,7 @@ class State(TypedDict, total=False):
     discover: bool
     projects: list[str]
     only: list[str] | None  # project filter from the dashboard; None = every project
-    lenses: list[str] | None  # discover lenses from the dashboard (fix, feature); None = both
+    lenses: list[str] | None  # discover lenses from the dashboard (fix, feature, cleanup); None = fix + feature
     proposals: Annotated[list, operator.add]  # parallel discover writes
     plan: list[dict]
     planned: list[str] | None  # approved ids in order; None = `harness run`, rank the whole backlog

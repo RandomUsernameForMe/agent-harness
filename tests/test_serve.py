@@ -526,6 +526,16 @@ def test_dashboard_go_only_features_lands_kind_in_backlog(tmp_path):
     assert [(t.title, t.kind, t.status) for t in new] == [("Export galerie do ZIP", "feature", "~")]
 
 
+def test_dashboard_cleanup_review_proposes_refactors_and_records_date(tmp_path):
+    env = Env(tmp_path, "go-happy", now=NOON)
+    serve.act(env.ctx, "go", {"lenses": ["cleanup"], "projects": ["web"]})
+    serve.act(env.ctx, "plan", {"keep": "q"})
+    new = [t for t in parse(env.sim.backlog_path.read_bytes().decode("utf-8")) if t.id != "sim-01"]
+    assert [(t.project, t.title, t.kind, t.status) for t in new] == [("web", "Rozdělit render() v app.ts", "refactor", "~")]
+    assert set(events.last_cleanups(env.ctx.conn, simulated=True)) == {"web"}
+    assert events.last_cleanups(env.ctx.conn) == {}  # simulated runs never count for real projects
+
+
 def test_dashboard_go_only_selected_projects(tmp_path):
     env = Env(tmp_path, "go-happy", now=NOON)
     serve.act(env.ctx, "go", {"projects": ["web"]})

@@ -51,6 +51,12 @@ Když chyba leží v promptu harnessu (worker by selhal v jakémkoli projektu), 
 
 `prioritize` navíc dostane, jak jsi dosud naložil s úkoly každého projektu (hotovo, zamítnuto, selhalo, čeká).
 
+## Revize čistoty kódu
+
+Tlačítko 🧹 v dashboardu spustí `go` jen s lensem `cleanup` (prompt `discover_cleanup.md`) pro vybrané projekty. Opus projde celé repo a hledá zamotaný kód, duplicity, špatné hranice modulů, mrtvý kód a zbytečnou složitost. Navrhne nejvýš 5 refaktorů bez změny chování, každý na jeden PR. Návrhy mají v BACKLOGu typ `[refactor]` a plán schvaluješ stejně jako u `go`. Běžné `go` lens `cleanup` nespouští.
+
+Discover, ve kterém lens `cleanup` doběhl bez chyby, uloží do eventu `delta.cleanup = true`. Dashboard u projektu podle toho ukazuje, kolik dní uplynulo od poslední revize a kolik PR se od té doby zmergovalo (`gh pr list --state merged`, cache jako u otevřených PR).
+
 ## Dozor nad implement (Jev)
 
 Implementujícího agenta hlídá přes hooky Agent SDK model Jev (TypeSafe, `POST /v1/systemone`, klíč v env `TYPESAFE_API_KEY` nebo `JEV_API_KEY`):
