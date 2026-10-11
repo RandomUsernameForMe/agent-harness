@@ -1,0 +1,42 @@
+import pytest
+
+from harness import serve
+from harness.backlog import parse
+from tests.test_serve import Env
+
+
+def _tasks(env):
+    return parse(env.sim.backlog_path.read_bytes().decode("utf-8"))
+
+
+def test_act_add_task(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    p = next(iter(env.ctx.cfg.projects))
+    reply = serve.act(env.ctx, "add", {"project": p, "title": "Přidat export", "description": "řádek 1\nřádek 2", "done": "Test: ok"})
+    [t] = [t for t in _tasks(env) if t.title == "Přidat export"]
+    assert t.status == " " and t.project == p and t.id in reply and t.id in serve._queue(env.ctx)
+    assert t.description == "řádek 1\nřádek 2\nHotovo = Test: ok"
+
+
+def test_telegram_task(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    p = next(iter(env.ctx.cfg.projects))
+    env.tick(env.msg(f"/task {p} Jiný úkol\nřádek popisu"))
+    [t] = [t for t in _tasks(env) if t.title == "Jiný úkol"]
+    assert t.status == " " and t.description == "řádek popisu"
+
+
+@pytest.mark.parametrize("text", ["/task neznamy x", "/task {p}", "/task {p}  "])
+def test_telegram_task_errors_leave_backlog(tmp_path, text):
+    env = Env(tmp_path, "happy-path", window=None)
+    p = next(iter(env.ctx.cfg.projects))
+    before = env.sim.backlog_path.read_bytes()
+    env.tick(env.msg(text.format(p=p)))
+    assert env.sim.backlog_path.read_bytes() == before
+    assert env.bot.texts()[-1].startswith("❌")
+
+
+def test_act_add_unknown_project(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    with pytest.raises(ValueError):
+        serve.act(env.ctx, "add", {"project": "neznamy", "title": "x"})

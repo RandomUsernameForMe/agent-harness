@@ -373,8 +373,20 @@ function renderProjects(projects, proposals) {
     return `<section><h3>${esc(p.name)}</h3>
       <div class="counts"><span><b>${c[" "]}</b> ve frontě</span><span><b>${c["~"]}</b> návrhů</span>
         <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}</div>
-      ${prs}${proposalList(proposals.filter(t => t.project === p.name))}</section>`;
+      ${prs}${proposalList(proposals.filter(t => t.project === p.name))}
+      <details><summary>+ úkol</summary>
+        <form data-add="${esc(p.name)}" class="row" style="flex-wrap:wrap">
+          <input type="text" name="title" required placeholder="titulek" aria-label="Titulek úkolu">
+          <select name="priority" aria-label="Priorita"><option value="1">P1</option><option value="2" selected>P2</option><option value="3">P3</option></select>
+          <textarea name="description" rows="2" placeholder="popis" aria-label="Popis" style="flex-basis:100%"></textarea>
+          <input type="text" name="done" placeholder="Hotovo = …" aria-label="Hotovo =" style="flex-basis:100%">
+          <button class="primary" ${serveOn ? "" : "disabled"}>Přidat</button></form></details></section>`;
   }).join("");
+  $("projects").querySelectorAll("[data-add]").forEach(f => f.onsubmit = e => {
+    e.preventDefault();
+    const v = f.elements;
+    act("add", {project: f.dataset.add, title: v.title.value, description: v.description.value, done: v.done.value, priority: +v.priority.value});
+  });
   $("projects").querySelectorAll("[data-merge]").forEach(b => b.onclick = () => mergePr(b));
   $("projects").querySelectorAll("[data-do=approve]").forEach(b => b.onclick = () => act("approve", {task: b.dataset.task}));
   $("projects").querySelectorAll("[data-do=reject]").forEach(b => b.onclick = () => askReason(b));
