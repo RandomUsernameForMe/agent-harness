@@ -33,6 +33,7 @@ class WorkerState(TypedDict, total=False):
     plan: str
     accept: str  # acceptance command the planner derived from the task's "Hotovo ="; verify runs it too
     stuck: bool
+    supervisor_stop: str  # why the supervisor stopped the last implement call; "" = it did not
     replanned: bool
     clarifications: list[str]
     baseline_failures: list[str]
@@ -115,14 +116,18 @@ def after_verify(state: WorkerState) -> str:
         return "report"
     if state.get("verify_ok"):
         return "open_pr"
-    if not state.get("stuck") and state.get("attempts", 0) < state.get("max_attempts", 3):
+    if not state.get("stuck") and not state.get("supervisor_stop") \
+            and state.get("attempts", 0) < state.get("max_attempts", 3):
         return "implement"
     return "report" if state.get("replanned") else "replan"
 
 
 def replan(state: WorkerState) -> dict:
     # last_failure stays: plan and implement see why the previous plan failed
-    return {"replanned": True, "attempts": 0, "stuck": False}
+    out = {"replanned": True, "attempts": 0, "stuck": False, "supervisor_stop": ""}
+    if stop := state.get("supervisor_stop"):
+        out["last_failure"] = f"The supervisor stopped the implementer ({stop})\n\n{state.get('last_failure', '')}"
+    return out
 
 
 def _norm(text: str) -> str:

@@ -7,3 +7,4 @@ __pycache__/
 .playwright-mcp/
 serve_state.*
 serve.log
+.env
