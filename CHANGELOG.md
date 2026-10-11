@@ -64,3 +64,4 @@
 ## [2026-10-10] - Worker: plánovač z „Hotovo =“ odvodí ACCEPT příkaz, který verify pouští; opakovaná stejná chyba nebo vyčerpané pokusy → jeden replan s kontextem selhání
 ## [2026-10-10] - parse_reflection toleruje nečekané typy v odpovědi modelu
 ## [2026-10-10] - Sken TODO: limit až po vyřazení návrhů známých z BACKLOGu
+## [2026-10-11] - Dashboard: max úkolů a paralelismus nastavitelné pro jeden běh (výchozí z projects.yaml)

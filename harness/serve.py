@@ -163,8 +163,20 @@ def _lenses(lenses) -> list[str] | None:
     return lenses
 
 
+def _limits(data: dict) -> dict:
+    """Per-run overrides of max_tasks / max_parallel from the dashboard; absent → projects.yaml applies."""
+    out = {}
+    for key in ("max_tasks", "max_parallel"):
+        if (v := data.get(key)) is None:
+            continue
+        if type(v) is not int or v < 1:
+            raise ValueError(f"{key} must be a positive int, got {v!r}")
+        out[key] = v
+    return out
+
+
 def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False, only: list[str] | None = None,
-               lenses: list[str] | None = None) -> str:
+               lenses: list[str] | None = None, limits: dict | None = None) -> str:
     run = ctx.state["run"]
     if ctx.busy or (run and run["status"] in ACTIVE):
         return "Běh už probíhá nebo čeká — /status."
@@ -175,7 +187,8 @@ def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False, only: lis
         return "Fronta je prázdná." if manual else ""
     ctx.state["seq"] += 1
     run_id = f"{'go' if discover else 'run'}-{ctx.now():%Y%m%d-%H%M%S}-s{ctx.state['seq']}"
-    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover, "only": only, "lenses": lenses})
+    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover, "only": only, "lenses": lenses}
+           | (limits or {}))
     return f"▶️ Spouštím {run_id}."
 
 
@@ -517,7 +530,7 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
         _collect(ctx)
         if action in ("run", "go"):
             reply = _start_new(ctx, manual=True, discover=action == "go", only=_only(ctx, data.get("projects")),
-                               lenses=_lenses(data.get("lenses")))
+                               lenses=_lenses(data.get("lenses")), limits=_limits(data))
         elif action in ("approve", "reject"):
             reply = _decide(ctx, str(data.get("task")), action == "approve", str(data.get("reason") or ""))
         elif action == "lesson":

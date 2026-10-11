@@ -24,6 +24,7 @@
   button:hover { border-color:var(--accent); }
   button.primary { background:var(--accent); color:var(--on-accent); border-color:var(--accent); font-weight:600; }
   button:disabled { opacity:.45; cursor:default; }
+  input[type=number] { font:inherit; width:4em; padding:1px 4px; border-radius:5px; border:1px solid var(--line); background:#15161b; color:var(--text); }
   input[type=text] { font:inherit; padding:6px 10px; border-radius:7px; border:1px solid var(--line); background:#15161b; color:var(--text); flex:1 1 220px; }
   a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
   .muted { color:var(--muted); }
@@ -114,6 +115,9 @@
       <div class="row" id="lenses" style="margin-top:6px; font-size:13px"><span class="muted">Hledat:</span>
         <label class="chip"><input type="checkbox" value="fix" checked> Bugy a opravy</label>
         <label class="chip"><input type="checkbox" value="feature" checked> Nové features</label></div>
+      <div class="row" id="limits" style="margin-top:6px; font-size:13px"><span class="muted">Tento běh:</span>
+        <label class="chip">max úkolů <input type="number" id="maxTasks" min="1"></label>
+        <label class="chip">najednou <input type="number" id="maxParallel" min="1"></label></div>
       <div class="pipe" id="pipe"></div>
       <div id="workers"></div>
       <div id="flowHint" class="muted"></div>
@@ -157,11 +161,27 @@ function scoped() {
   return boxes.every(c => c.checked) ? {} : {projects: boxes.filter(c => c.checked).map(c => c.value)};
 }
 
+function limits() {
+  // empty field → the daemon's projects.yaml value applies
+  const out = {};
+  for (const [key, id] of [["max_tasks", "maxTasks"], ["max_parallel", "maxParallel"]])
+    if ($(id).value !== "") out[key] = Number($(id).value);
+  return out;
+}
+
+function renderLimits(defaults) {
+  // fill once; later refreshes must not overwrite what the owner typed
+  if (!defaults) return;
+  if ($("maxTasks").value === "") $("maxTasks").value = defaults.max_tasks;
+  if ($("maxParallel").value === "") $("maxParallel").value = defaults.max_parallel;
+}
+
 function runBody(action) {
   // both lenses checked → no filter; only "go" discovers, so only it carries lenses
   const boxes = [...$("lenses").querySelectorAll("input")];
+  const body = {...scoped(), ...limits()};
   return action === "go" && !boxes.every(c => c.checked)
-    ? {...scoped(), lenses: boxes.filter(c => c.checked).map(c => c.value)} : scoped();
+    ? {...body, lenses: boxes.filter(c => c.checked).map(c => c.value)} : body;
 }
 
 function renderScope(projects) {
@@ -441,6 +461,7 @@ async function refresh() {
     renderPlan(o.serve && o.serve.plan);
     renderQuestions(o.serve ? o.serve.questions : []);
     renderScope(o.projects);
+    renderLimits(o.limits);
     renderRunSub(o.projects);
     refreshFlow(o.serve && o.serve.run);
     renderProjects(o.projects, o.proposals);
