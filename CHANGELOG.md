@@ -66,3 +66,4 @@
 ## [2026-10-10] - Sken TODO: limit až po vyřazení návrhů známých z BACKLOGu
 ## [2026-10-11] - Dashboard: max úkolů a paralelismus nastavitelné pro jeden běh (výchozí z projects.yaml)
 ## [2026-10-11] - ruční zadání úkolu (dashboard "+ úkol", Telegram /task)
+## [2026-10-11] - Dozor Jev nad implement: zákaz oslabení testů, varování/stop při zacyklení → replan

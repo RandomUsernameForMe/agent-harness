@@ -2,7 +2,7 @@ import asyncio
 import sys
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,11 +66,13 @@ def worker_options(*, cwd, model: str, tools: list[str], disallowed=(),
 
 
 def run_agent(prompt: str, *, cwd, model: str, tools: list[str], disallowed=(),
-              permission_mode: str = "acceptEdits", max_turns: int = 60) -> WorkerResult:
+              permission_mode: str = "acceptEdits", max_turns: int = 60,
+              supervise: Callable[[list[dict]], dict] | None = None) -> WorkerResult:
+    """`supervise(steps)` returns SDK hooks; they see the call's steps and may append their own."""
     options = worker_options(cwd=cwd, model=model, tools=tools, disallowed=disallowed,
                              permission_mode=permission_mode, max_turns=max_turns)
     # read here, not inside the event loop: the trace context belongs to the calling graph node
-    return asyncio.run(_collect(prompt, options, model, trace.current()))
+    return asyncio.run(_collect(prompt, options, model, trace.current(), supervise))
 
 
 def _rate_limit(info) -> dict:
@@ -154,9 +156,12 @@ def _call(t: trace.Trace, model: str, acc: _Acc, status: str, error: str | None)
             "session_id": r.session_id if r else None, "billing": acc.billing}
 
 
-async def _collect(prompt: str, options: ClaudeAgentOptions, model: str, t: trace.Trace) -> WorkerResult:
+async def _collect(prompt: str, options: ClaudeAgentOptions, model: str, t: trace.Trace,
+                   supervise: Callable[[list[dict]], dict] | None = None) -> WorkerResult:
     """Every call is recorded — also failed and rate-limited ones, with the steps made so far."""
     acc, status, error = _Acc(time.time()), "error", "interrupted"  # Ctrl+C / cancel skip the excepts below
+    if supervise:
+        options.hooks = supervise(acc.steps)
     try:
         await _consume(query(prompt=prompt, options=options), acc)
         out = _finish(acc, model)

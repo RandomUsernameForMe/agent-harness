@@ -51,6 +51,14 @@ Když chyba leží v promptu harnessu (worker by selhal v jakémkoli projektu), 
 
 `prioritize` navíc dostane, jak jsi dosud naložil s úkoly každého projektu (hotovo, zamítnuto, selhalo, čeká).
 
+## Dozor nad implement (Jev)
+
+Implementujícího agenta hlídá přes hooky Agent SDK model Jev (TypeSafe, `POST /v1/systemone`, klíč v env `TYPESAFE_API_KEY` nebo `JEV_API_KEY`):
+- **Úprava existujícího testu:** před každým Edit/Write testovacího souboru se Jev zeptá, jestli úprava oslabuje kontrolu (smazaný assert, `.skip`, očekávaná hodnota přepsaná na výsledek kódu). Při p ≥ 0.7 se úprava zakáže a agent dostane důvod.
+- **Postup:** každých 8 nástrojů Jev posoudí poslední kroky: postupuje / opakuje stejnou chybu / mimo plán / obchází problém. Při prvním problémovém verdiktu (confidence ≥ 0.6) agent dostane varování, při druhé se zastaví a úkol jde rovnou na `replan` s důvodem.
+
+Verdikty jsou kroky `supervisor` u volání v dashboardu. Bez klíče nebo při chybě Jev mlčí a harness běží jako dřív.
+
 ## Autonomní běh: `harness serve`
 
     .venv/Scripts/harness serve

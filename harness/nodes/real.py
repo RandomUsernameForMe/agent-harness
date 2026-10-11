@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
-from .. import lessons
+from .. import lessons, supervisor
 from ..backlog import Task
 from ..guard import check_diff, new_failures
 from ..priority import captures_about
@@ -203,8 +203,10 @@ def real_nodes(cfg: Config) -> dict:
                    if s.get("last_failure") else "")
         prompt = render_prompt("implement.md", title=t["title"], description=t["description"],
                                plan=s.get("plan", ""), failure=failure, lessons=lessons_block(t["project"]))
-        r = run_agent(prompt, cwd=s["worktree"], model="sonnet", tools=WRITE_TOOLS, disallowed=NO_PUBLISH, max_turns=80)
-        return _agent_out("implement", r)
+        watch = supervisor.Watch(t, s.get("plan", ""), supervisor.jev_judge, s["worktree"])
+        r = run_agent(prompt, cwd=s["worktree"], model="sonnet", tools=WRITE_TOOLS, disallowed=NO_PUBLISH, max_turns=80,
+                      supervise=watch.hooks)
+        return _agent_out("implement", r) | {"supervisor_stop": watch.stop}
 
     def verify(s):
         p, wt = proj(s), s["worktree"]
