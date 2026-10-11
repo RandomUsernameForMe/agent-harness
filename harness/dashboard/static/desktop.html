@@ -337,8 +337,16 @@ function proposalGroup(heading, props) {
       <button data-task="${esc(t.id)}" data-do="reject" title="Zamítnout" aria-label="Zamítnout" ${serveOn ? "" : "disabled"}>❌</button></li>`).join("")}</ul>`;
 }
 
-function renderProjects(projects, proposals) {
-  const key = JSON.stringify([projects, proposals, serveOn]);
+function failedList(list) {
+  if (!list.length) return "";
+  return `<h4>Selhané a nejasné</h4><ul>${list.map(t => `<li class="prop">
+      <span class="tag">${t.status === "!" ? "selhalo" : "nejasné"}</span> ${esc(t.title)}
+      ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ""}
+      <button data-task="${esc(t.id)}" data-do="retry" ${serveOn ? "" : "disabled"}>Zkusit znovu</button></li>`).join("")}</ul>`;
+}
+
+function renderProjects(projects, proposals, failed) {
+  const key = JSON.stringify([projects, proposals, failed, serveOn]);
   if (key === projectsKey) return;  // keep opened descriptions open between refreshes
   projectsKey = key;
   $("projects").innerHTML = projects.map(p => {
@@ -352,12 +360,24 @@ function renderProjects(projects, proposals) {
       : `<span class="muted">žádné otevřené PR</span>`;
     return `<section><h3>${esc(p.name)}</h3>
       <div class="counts"><span><b>${c[" "]}</b> ve frontě</span><span><b>${c["~"]}</b> návrhů</span>
-        <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}</div>
-      ${prs}${proposalList(proposals.filter(t => t.project === p.name))}</section>`;
+        <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}
+        ${c["!"] ? `<span style="color:var(--bad)"><b>${c["!"]}</b> selhalo</span>` : ""}</div>
+      ${prs}${failedList(failed.filter(t => t.project === p.name))}${proposalList(proposals.filter(t => t.project === p.name))}</section>`;
   }).join("");
   $("projects").querySelectorAll("[data-merge]").forEach(b => b.onclick = () => mergePr(b));
   $("projects").querySelectorAll("[data-do=approve]").forEach(b => b.onclick = () => act("approve", {task: b.dataset.task}));
   $("projects").querySelectorAll("[data-do=reject]").forEach(b => b.onclick = () => askReason(b));
+  $("projects").querySelectorAll("[data-do=retry]").forEach(b => b.onclick = () => askRetry(b));
+}
+
+function askRetry(button) {
+  const li = button.closest("li");
+  li.innerHTML = `<form class="row" style="flex:1"><input type="text" aria-label="Doplnění (nepovinné)"
+      placeholder="doplnění (nepovinné)"><button class="primary">Zkusit znovu</button><button type="button">Zpět</button></form>`;
+  const input = li.querySelector("input");
+  input.focus();
+  li.querySelector("form").onsubmit = e => { e.preventDefault(); act("retry", {task: button.dataset.task, text: input.value}); };
+  li.querySelector("button[type=button]").onclick = () => { projectsKey = ""; refresh(); };
 }
 
 function askReason(button) {
@@ -443,7 +463,7 @@ async function refresh() {
     renderScope(o.projects);
     renderRunSub(o.projects);
     refreshFlow(o.serve && o.serve.run);
-    renderProjects(o.projects, o.proposals);
+    renderProjects(o.projects, o.proposals, o.failed);
     renderLessons(o.serve ? o.serve.lessons : []);
   } catch (e) { $("status").innerHTML = `<span style="color:var(--bad)">dashboard nedostupný</span>`; }
 }

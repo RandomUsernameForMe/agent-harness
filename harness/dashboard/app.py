@@ -143,10 +143,11 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         with ThreadPoolExecutor() as pool:
             pulls = dict(zip(cfg.projects, pool.map(cached_prs, [p.path for p in cfg.projects.values()])))
         projects = [{"name": name, "prs": pulls[name],
-                     "counts": {s: sum(t.project == name and t.status == s for t in tasks) for s in " ~x?-"}}
+                     "counts": {s: sum(t.project == name and t.status == s for t in tasks) for s in " ~x?-!"}}
                     for name in cfg.projects]
         proposals = [asdict(t) for t in tasks if t.status == "~"]
-        return {"projects": projects, "proposals": proposals, "serve": control and serve.snapshot(control),
+        failed = [asdict(t) for t in tasks if t.status in "!?"]
+        return {"projects": projects, "proposals": proposals, "failed": failed, "serve": control and serve.snapshot(control),
                 "boot": boot}
 
     @app.post("/control/{action}")

@@ -70,6 +70,23 @@ def set_status(text: str, task_id: str, status: str, note: str = "") -> str:
     raise KeyError(task_id)
 
 
+def add_description(text: str, task_id: str, line: str) -> str:
+    """Append an indented description line after the task's existing description lines."""
+    lines = text.splitlines(keepends=True)
+    eol = "\r\n" if "\r\n" in text else "\n"
+    for i, row in enumerate(lines):
+        m = TASK_RE.match(row.rstrip("\r\n"))
+        if m and m["id"] == task_id:
+            end = i + 1
+            while end < len(lines) and lines[end].startswith("  ") and lines[end].strip():
+                end += 1
+            if not lines[end - 1].endswith("\n"):
+                lines[end - 1] += eol
+            lines.insert(end, f"  {line}{eol}")
+            return "".join(lines)
+    raise KeyError(task_id)
+
+
 def add_tasks(text: str, project: str, lines: list[str]) -> str:
     """Append task lines at the end of the project's section (created at the end of the file if missing)."""
     eol = "\r\n" if "\r\n" in text else "\n"

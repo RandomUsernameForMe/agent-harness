@@ -174,6 +174,19 @@ def test_overview_reads_projects_yaml_every_request(tmp_path):
     assert TestClient(create_app(tmp_path, prs=prs)).get("/overview").json()["boot"] != body["boot"]
 
 
+def test_overview_lists_failed_tasks(tmp_path):
+    shutil.copytree(ROOT / "scenarios", tmp_path / "scenarios")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "projects.yaml").write_text("projects:\n  alpha: {path: a, base: main, verify: [x]}\n", encoding="utf-8")
+    (tmp_path / "BACKLOG.md").write_text(
+        "## alpha\n- [!] P2 a-1 Titulek — verify failed\n- [?] P2 a-2 Nejasné — chybí zadání\n- [ ] P1 a-3 Ok\n",
+        encoding="utf-8")
+    body = TestClient(create_app(tmp_path, prs=lambda path: [])).get("/overview").json()
+    assert {t["id"]: (t["status"], t["note"]) for t in body["failed"]} == {
+        "a-1": ("!", "verify failed"), "a-2": ("?", "chybí zadání")}
+    assert body["projects"][0]["counts"]["!"] == 1
+
+
 def test_control_needs_serve_and_local_origin(client):
     assert client.post("/control/run", json={}).status_code == 503
     assert client.post("/control/run", json={}, headers={"Origin": "https://evil.example"}).status_code == 403

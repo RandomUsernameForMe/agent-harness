@@ -493,6 +493,20 @@ def test_dashboard_reject_with_reason(tmp_path):
     assert p1.note == "zamítnuto: mimo fokus"
 
 
+def test_dashboard_retry_failed_task(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    with env.sim.backlog_path.open("a", encoding="utf-8") as f:
+        f.write("## demo2\n- [!] P2 a-1 Titulek — verify failed\n  Popis.\n")
+    before = env.sim.backlog_path.read_bytes()
+    assert "nenalezen" in serve.act(env.ctx, "retry", {"task": "nope"})
+    assert env.sim.backlog_path.read_bytes() == before
+    assert "vrácen" in serve.act(env.ctx, "retry", {"task": "a-1", "text": "použij vitest"})
+    text = env.sim.backlog_path.read_bytes().decode("utf-8")
+    assert "- [ ] P2 a-1 Titulek" in text.splitlines()
+    [a1] = [t for t in parse(text) if t.id == "a-1"]
+    assert a1.status == " " and a1.description == "Popis.\nDoplnění: použij vitest"
+
+
 def test_dashboard_run_only_selected_projects(tmp_path):
     env = Env(tmp_path, "parallel-projects", now=NOON)
     with pytest.raises(ValueError):

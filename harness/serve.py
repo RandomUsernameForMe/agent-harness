@@ -281,6 +281,22 @@ def _decide(ctx: Ctx, task_id: str, approve: bool, reason: str = "") -> str:
     return note[0]
 
 
+def _retry(ctx: Ctx, task_id: str, extra: str) -> str:
+    note = []
+
+    def change(text: str) -> str:
+        t = next((t for t in backlog.parse(text) if t.id == task_id), None)
+        if t is None or t.status not in "!?":
+            note.append(f"{task_id}: úkol nenalezen nebo není selhaný")
+            return text
+        note.append(f"↻ {task_id} vrácen do fronty")
+        text = backlog.set_status(text, task_id, " ")
+        extra_line = " ".join(extra.split())
+        return backlog.add_description(text, task_id, f"Doplnění: {extra_line}") if extra_line else text
+    edit_backlog(ctx.backlog_path, change)
+    return note[0]
+
+
 def _reason(ctx: Ctx, task_id: str, reason: str) -> str:
     """A reason sent after the rejection (Telegram reply); the reflection reads it from the task's note."""
     def change(text: str) -> str:
@@ -520,6 +536,8 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
                                lenses=_lenses(data.get("lenses")))
         elif action in ("approve", "reject"):
             reply = _decide(ctx, str(data.get("task")), action == "approve", str(data.get("reason") or ""))
+        elif action == "retry":
+            reply = _retry(ctx, str(data.get("task")), str(data.get("text") or ""))
         elif action == "lesson":
             reply = _decide_lesson(ctx, f"{data.get('project')}/{data.get('id')}", bool(data.get("approve")))
         elif action == "plan":
