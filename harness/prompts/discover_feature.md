@@ -18,5 +18,6 @@ Owner's notes:
 {notes}
 {lessons}
 Explore read-only. Then answer with ONLY a JSON array and no other text:
-[{{"title": "...", "description": "...", "why": "...", "done": "..."}}]
+[{{"title": "...", "description": "...", "why": "...", "done": "...", "accept": "..."}}]
 Write title, description, why and done in Czech. title: at most 80 characters. description: what the user gets and what to change where (files). why: who benefits and how. done: a concrete check that proves the feature works. Fewer strong ideas beat five weak ones; [] is a valid answer.
+accept: one command, run by Windows cmd.exe from the repository root (no bash syntax), that passes only when `done` is met and fails while the work is missing, typically running the specific new test file. With it the worker implements straight from your description without a separate planner, so name the files and steps concretely. Use "" when no command can check it.

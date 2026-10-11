@@ -70,7 +70,8 @@ def parse_proposals(text: str, project: str, known: list[Task], lens: str = "fix
         out.append({"id": pid, "project": project, "title": title,
                     "kind": _kind(item, lens),
                     "description": str(item.get("description") or "").strip(),
-                    "why": _line(item.get("why")), "done": _line(item.get("done")), "source": "new"})
+                    "why": _line(item.get("why")), "done": _line(item.get("done")),
+                    "accept": _line(item.get("accept")).strip("`").strip(), "source": "new"})
     return out[:MAX_PROPOSALS]
 
 
@@ -117,7 +118,9 @@ def task_lines(p: dict, status: str) -> list[str]:
     kind = f"[{p['kind']}] " if p.get("kind") else ""
     lines = [f"- [{status}] P{NEW_PRIORITY} {p['id']} {kind}{p['title']}"]
     lines += [f"  {row.strip()}" for row in p["description"].splitlines() if row.strip()]
-    return lines + ([f"  Hotovo = {p['done']}"] if p["done"] else [])
+    lines += [f"  Hotovo = {p['done']}"] if p["done"] else []
+    # the scout already explored the code: with an acceptance command the worker skips the planner
+    return lines + ([f"  ACCEPT: {p['accept']}"] if p.get("accept") else [])
 
 
 def _status(pid: str, planned: set[str], kept: list[str] | None) -> str:

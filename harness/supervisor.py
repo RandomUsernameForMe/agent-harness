@@ -1,6 +1,6 @@
 """Jev watches the implementing agent through SDK hooks: denies edits that weaken tests, warns and then stops
 an agent that loops, drifts off the plan or works around the problem. Without TYPESAFE_API_KEY / JEV_API_KEY
-it stays silent."""
+only the identical-call check (no model) still acts."""
 import asyncio
 import json
 import os
@@ -22,6 +22,7 @@ TEST_PATH_RE = re.compile(r"(^|/)(tests?|__tests__)/|(^|/)test_[^/]*\.py$|[._-](
 EDIT_TOOLS = ("Edit", "Write")
 WEAKENS_AT = 0.7
 CHECK_EVERY = 8  # tool calls between progress checks
+REPEATS = 3  # identical calls in a row (same input and result) that count as repeating, Jev or not
 RECENT = 16  # steps the progress check sees
 SURE_AT = 0.6  # choice confidence needed to act on a progress verdict
 CLIP = 4000
@@ -128,6 +129,7 @@ class Watch:
         self.task = {"title": task.get("title", ""), "description": task.get("description", "")}
         self.plan, self.judge, self.cwd = _clip(plan), judge, Path(cwd)
         self.tools, self.warnings, self.stop = 0, 0, ""
+        self.last_call, self.repeats = "", 0
         self.base = self._git("rev-parse", "HEAD").strip() or "HEAD"  # the agent may commit during the call
 
     def hooks(self, steps: list) -> dict:
@@ -200,9 +202,32 @@ class Watch:
             return {}
         return {"decision": "block", "reason": BLOCK_REASON.format(files=", ".join(files))}
 
+    def _is_repeat(self, inp: dict) -> bool:
+        call = json.dumps([inp.get("tool_name"), inp.get("tool_input"), inp.get("tool_response")],
+                          sort_keys=True, default=str)
+        self.repeats = self.repeats + 1 if call == self.last_call else 1
+        self.last_call = call
+        if self.repeats < REPEATS:
+            return False
+        self.repeats = 0
+        return True
+
+    def _act(self, label: str) -> dict:
+        """First problem warns the agent, the second stops it → replan."""
+        self.warnings += 1
+        if self.warnings == 1:
+            return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": WARNINGS[label]}}
+        self.stop = f"{label}: {PROGRESS_CRITERIA[label]}"
+        return {"continue_": False, "stopReason": f"supervisor: {label}"}
+
     def _check_progress(self, steps: list, inp: dict) -> dict:
         self.tools += 1
-        if self.stop or self.tools % CHECK_EVERY:
+        if self.stop:
+            return {}
+        if self._is_repeat(inp):
+            _note(steps, "progress", f"repeating (identical call ×{REPEATS})", True)
+            return self._act("repeating")
+        if self.tools % CHECK_EVERY:
             return {}
         recent = [s for s in steps if s["kind"] != "supervisor"][-RECENT:]
         latest = {"tool": inp.get("tool_name"), "input": _clip(inp.get("tool_input")),
@@ -213,10 +238,4 @@ class Watch:
         label, conf = answer["progress"], answer.get("progress_confidence") or 0.0
         acted = label in WARNINGS and conf >= SURE_AT
         _note(steps, "progress", f"{label} (confidence {conf:.2f})", acted)
-        if not acted:
-            return {}
-        self.warnings += 1
-        if self.warnings == 1:
-            return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": WARNINGS[label]}}
-        self.stop = f"{label}: {PROGRESS_CRITERIA[label]}"
-        return {"continue_": False, "stopReason": f"supervisor: {label}"}
+        return self._act(label) if acted else {}

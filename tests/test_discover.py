@@ -3,7 +3,7 @@ import pytest
 from harness import backlog
 from harness.backlog import Task
 from harness.discover import (apply_approval, candidates, fallback_plan, format_plan, json_array, parse_approval,
-                              parse_proposals, parse_ranking, proposal_id)
+                              parse_proposals, parse_ranking, proposal_id, task_lines)
 
 
 def task(id, title, status=" ", project="demo", priority=2, description=""):
@@ -22,7 +22,17 @@ def test_parse_proposals_normalizes_and_limits():
     props = parse_proposals(f"[{items}]", "demo", [])
     assert len(props) == 5
     assert props[0] == {"id": proposal_id("demo", "Úkol 0"), "project": "demo", "title": "Úkol 0", "kind": "test",
-                        "description": "", "why": "", "done": "pytest", "source": "new"}
+                        "description": "", "why": "", "done": "pytest", "accept": "", "source": "new"}
+
+
+def test_accept_command_lands_in_backlog_description():
+    text = '[{"title": "Test kv", "description": "Přidej lib/kv.test.ts", "done": "test projde", "accept": "`npx vitest run lib/kv.test.ts`"}]'
+    p = parse_proposals(text, "demo", [])
+    assert p[0]["accept"] == "npx vitest run lib/kv.test.ts"
+    out = apply_approval("", p, p, [p[0]["id"]])
+    t = backlog.parse(out)[0]
+    assert t.description == "Přidej lib/kv.test.ts\nHotovo = test projde\nACCEPT: npx vitest run lib/kv.test.ts"
+    assert "ACCEPT" not in "\n".join(task_lines(props("Bez")[0], " "))
 
 
 def test_parse_proposals_drops_junk_and_duplicates():

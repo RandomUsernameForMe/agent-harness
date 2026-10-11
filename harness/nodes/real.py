@@ -178,11 +178,14 @@ def real_nodes(cfg: Config) -> dict:
 
     def plan(s):
         t = s["task"]
+        if not s.get("replanned") and (accept := parse_accept(t["description"])):
+            return {"plan": t["description"], "accept": accept}  # discover already explored: its description is the plan
         prompt = render_prompt("plan.md", title=t["title"], description=t["description"],
                                clarifications=clarification_block(s.get("clarifications") or []),
                                replan=replan_block(s), lessons=lessons_block(t["project"]))
-        r = run_agent(prompt,
-                      cwd=s["worktree"], model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=30)
+        # shell hidden: in dontAsk mode the planner kept trying it and getting denied
+        r = run_agent(prompt, cwd=s["worktree"], model=cfg.plan_model, tools=READ_TOOLS, disallowed=["Bash", "PowerShell"],
+                      permission_mode="dontAsk", max_turns=30)
         out = _agent_out("plan", r)
         first = r.text.strip().splitlines()[0] if r.text.strip() else ""
         if first.startswith("UNCLEAR:"):
