@@ -147,7 +147,7 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
                     for name in cfg.projects]
         proposals = [asdict(t) for t in tasks if t.status == "~"]
         return {"projects": projects, "proposals": proposals, "serve": control and serve.snapshot(control),
-                "boot": boot}
+                "boot": boot, "limits": {"max_tasks": cfg.max_tasks_per_run, "max_parallel": cfg.max_parallel}}
 
     @app.post("/control/{action}")
     def control_action(action: str, request: Request, body: dict | None = None):

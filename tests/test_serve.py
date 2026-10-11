@@ -504,6 +504,17 @@ def test_dashboard_run_only_selected_projects(tmp_path):
     assert serve.act(env.ctx, "run", {"projects": ["beta"]}) == "Fronta je prázdná."
 
 
+def test_dashboard_run_limits_override_config(tmp_path):
+    env = Env(tmp_path, "parallel-projects", now=NOON)
+    for bad in (0, -1, "2", True, 1.5):
+        with pytest.raises(ValueError):
+            serve.act(env.ctx, "run", {"max_tasks": bad})
+        with pytest.raises(ValueError):
+            serve.act(env.ctx, "run", {"max_parallel": bad})
+    serve.act(env.ctx, "run", {"max_tasks": 1, "max_parallel": 1})
+    assert sorted(env.statuses().values()) == [" ", " ", "x"]
+
+
 def test_dashboard_go_only_features_lands_kind_in_backlog(tmp_path):
     env = Env(tmp_path, "go-happy", now=NOON)
     for bad in (["bugs"], [], "feature"):
