@@ -9,7 +9,8 @@ from .backlog import Task
 from .nodes.real import git
 from .projects import Config, Project
 
-MARKER_RE = re.compile(r"\b(TODO|FIXME)\b[:\s-]*(.*)")
+# marker = first word of a comment; mentions in code/strings/prose are not work left
+MARKER_RE = re.compile(r"(?:#|//|/\*|<!--|--|^\s*\*)\s*(TODO|FIXME)\b(?:\([^)]*\))?[:\s-]*(.*)")
 
 
 @dataclass(frozen=True)

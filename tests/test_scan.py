@@ -1,8 +1,17 @@
 from harness.backlog import parse
 from harness.nodes.real import git
 from harness.projects import Config
-from harness.scan import new_proposals, proposal_lines, scan_all, scan_project
+from harness.scan import _proposal, new_proposals, proposal_lines, scan_all, scan_project
 from tests.test_real_git import make_repo, project
+
+
+def test_marker_mentions_are_not_proposals():
+    for text in ['MARKER_RE = re.compile(r"\\b(TODO|FIXME)\\b")', '"""TODO/FIXME markers on origin"""',
+                 "# the TODO scan skip it"]:
+        assert _proposal("demo", "a.py", 1, text) is None
+    for text, title in [("# TODO: opravit x", "TODO: opravit x"), ("// FIXME: y", "FIXME: y"),
+                        ("# TODO(tgj): z", "TODO: z")]:
+        assert _proposal("demo", "a.py", 1, text).title == title
 
 
 def commit_files(repo, files: dict[str, str]):
