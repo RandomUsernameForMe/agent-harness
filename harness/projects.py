@@ -39,6 +39,7 @@ class Config:
     max_parallel: int = 2
     secondbrain: tuple[Path, int] | None = None  # (vault path, look-back days)
     serve: Serve = field(default_factory=Serve)
+    plan_model: str = "opus"
 
 
 def load_config(path: Path) -> Config:
@@ -58,7 +59,7 @@ def load_config(path: Path) -> Config:
     brain = raw.get("secondbrain")
     secondbrain = ((path.parent / brain["path"]).resolve(), brain.get("days", 14)) if brain else None
     return Config(billing, raw.get("max_tasks_per_run", 3), raw.get("quota_threshold", 0.7), projects,
-                  max_parallel, secondbrain, _serve(raw.get("serve") or {}))
+                  max_parallel, secondbrain, _serve(raw.get("serve") or {}), raw.get("plan_model", "opus"))
 
 
 def _window(text: str) -> tuple[time, time]:

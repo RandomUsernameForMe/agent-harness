@@ -71,3 +71,29 @@ def test_reflect_sends_feedback_and_known_lessons(monkeypatch):
     c = calls[0]
     assert c["tools"] == [] and c["max_turns"] == 1 and c["model"] == "opus"
     assert '"key": "rejected:d-1"' in c["prompt"] and "Testy {lib}" in c["prompt"] and "stará lekce" in c["prompt"]
+
+
+def test_plan_uses_configured_model_without_shell(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(real, "run_agent", fake_agent(calls, "1. Uprav a.py\nACCEPT: pytest tests/test_a.py"))
+    p = Project("demo", tmp_path, "main", (), ("pytest",), (), 3, 800)
+    task = {"id": "a", "project": "demo", "title": "T", "description": "D"}
+    for cfg, model in ((Config("subscription", 3, 0.7, {"demo": p}), "opus"),
+                       (Config("subscription", 3, 0.7, {"demo": p}, plan_model="sonnet"), "sonnet")):
+        out = real.real_nodes(cfg)["plan"]({"task": task, "worktree": str(tmp_path)})
+        assert out["accept"] == "pytest tests/test_a.py"
+        c = calls[-1]
+        assert c["model"] == model and c["tools"] == real.READ_TOOLS
+        assert {"Bash", "PowerShell"} <= set(c["disallowed"])
+
+
+def test_task_with_accept_skips_planner_until_replan(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(real, "run_agent", fake_agent(calls, "nový plán\nACCEPT: pytest tests/test_b.py"))
+    p = Project("demo", tmp_path, "main", (), ("pytest",), (), 3, 800)
+    plan = real.real_nodes(Config("subscription", 3, 0.7, {"demo": p}))["plan"]
+    desc = "Uprav a.py\nHotovo = test projde\nACCEPT: pytest tests/test_a.py"
+    s = {"task": {"id": "a", "project": "demo", "title": "T", "description": desc}, "worktree": str(tmp_path)}
+    assert plan(s) == {"plan": desc, "accept": "pytest tests/test_a.py"} and calls == []
+    out = plan(s | {"replanned": True, "plan": desc, "last_failure": "boom"})
+    assert len(calls) == 1 and out["accept"] == "pytest tests/test_b.py"

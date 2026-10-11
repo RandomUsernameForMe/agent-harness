@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import subprocess
 
 from harness import supervisor
@@ -22,10 +23,14 @@ def pre(watch, steps, tool, tool_input):
     return asyncio.run(hook({"tool_name": tool, "tool_input": tool_input}, "t1", None))
 
 
-def post(watch, steps, tool="Bash", tool_input=None):
+CALLS = itertools.count()
+
+
+def post(watch, steps, tool="Bash", tool_input=None, response=None):
+    # distinct calls by default: identical ones trip the repeat check
     hook = watch.hooks(steps)["PostToolUse"][0].hooks[0]
     return asyncio.run(hook({"tool_name": tool, "tool_input": tool_input or {"command": "npm test"},
-                             "tool_response": "1 failed"}, "t1", None))
+                             "tool_response": response or f"{next(CALLS)} failed"}, "t1", None))
 
 
 def test_test_paths():
@@ -85,6 +90,25 @@ def test_progressing_or_unsure_verdict_does_nothing():
         w = Watch(TASK, "plan", judge)
         assert all(post(w, []) == {} for _ in range(supervisor.CHECK_EVERY * 2))
         assert len(calls) == 2 and w.stop == ""
+
+
+def test_identical_calls_warn_then_stop_without_jev():
+    judge, calls = judge_of(None)
+    w, steps = Watch(TASK, "plan", judge), []
+    same = lambda: post(w, steps, tool_input={"command": "npm test"}, response="1 failed")
+    outs = [same() for _ in range(supervisor.REPEATS)]
+    assert outs[:-1] == [{}] * (supervisor.REPEATS - 1)
+    assert outs[-1]["hookSpecificOutput"]["additionalContext"] == supervisor.WARNINGS["repeating"]
+    assert steps[-1]["kind"] == "supervisor" and steps[-1]["is_error"]
+    outs = [same() for _ in range(supervisor.REPEATS)]
+    assert outs[-1]["continue_"] is False and w.stop.startswith("repeating")
+
+
+def test_same_command_with_new_result_is_not_a_repeat():
+    judge, _ = judge_of(None)
+    w = Watch(TASK, "plan", judge)
+    assert all(post(w, [], tool_input={"command": "npm test"}) == {} for _ in range(supervisor.REPEATS * 3))
+    assert w.stop == ""
 
 
 def test_jev_judge_without_key_is_silent(monkeypatch, tmp_path):

@@ -64,7 +64,13 @@ Implementujícího agenta hlídá přes hooky Agent SDK model Jev (TypeSafe, `PO
 - **Diff testů na konci:** agenti často píšou soubory skriptem přes Bash, tím Edit/Write hook obejdou. Když agent končí, Jev stejnou otázkou posoudí každý existující testový soubor změněný od začátku volání (`git diff`, i commitnuté). Při oslabení se agent jednou vrátí test obnovit. Když oslabení zůstane, zastaví se a úkol jde na `replan` (ani prošlé verify PR neotevře).
 - **Postup:** každých 8 nástrojů Jev posoudí poslední kroky: postupuje / opakuje stejnou chybu / mimo plán / obchází problém. Při prvním problémovém verdiktu (confidence ≥ 0.6) agent dostane varování, při druhé se zastaví a úkol jde rovnou na `replan` s důvodem.
 
+- **Stejné volání:** když agent 3× za sebou zavolá stejný nástroj se stejným vstupem a dostane stejný výsledek, platí to jako zacyklení (varování, pak stop). Funguje i bez Jev.
+
 Verdikty jsou kroky `supervisor` u volání v dashboardu. Bez klíče nebo při chybě Jev mlčí a harness běží jako dřív.
+
+Model plánovače nastavuje `plan_model` v `projects.yaml` (výchozí `opus`). Plánovač nemá Bash ani PowerShell, jen Read/Glob/Grep.
+
+Discover (lensy fix a feature) ke každému návrhu přidá `accept`, příkaz, který ověří „Hotovo =“. V BACKLOGu je to řádek `ACCEPT: …` v popisu. Úkol s tímto řádkem plánovač přeskočí: plánem je popis ze scouta, který už kód prošel. Plánovač se zavolá až při `replan`. Ruční úkol může `ACCEPT:` dostat taky.
 
 ## Autonomní běh: `harness serve`
 

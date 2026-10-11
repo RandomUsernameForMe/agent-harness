@@ -55,11 +55,13 @@ def test_phase2_fields_default(tmp_path):
     assert cfg.max_parallel == 2
     assert cfg.secondbrain is None
     assert cfg.projects["demo"].weight == 0
+    assert cfg.plan_model == "opus"
 
 
 def test_phase2_fields_set(tmp_path):
     cfg = load_config(write(tmp_path, """
 max_parallel: 3
+plan_model: sonnet
 secondbrain: {path: ../brain, days: 7}
 projects:
   demo: {path: ., base: main, verify: [x], weight: 2}
@@ -67,6 +69,7 @@ projects:
     assert cfg.max_parallel == 3
     assert cfg.secondbrain == ((tmp_path / ".." / "brain").resolve(), 7)
     assert cfg.projects["demo"].weight == 2
+    assert cfg.plan_model == "sonnet"
 
 
 def test_max_parallel_must_be_positive(tmp_path):
