@@ -33,7 +33,23 @@ def test_telegram_task_errors_leave_backlog(tmp_path, text):
     before = env.sim.backlog_path.read_bytes()
     env.tick(env.msg(text.format(p=p)))
     assert env.sim.backlog_path.read_bytes() == before
-    assert env.bot.texts()[-1].startswith("❌")
+    reply = env.bot.texts()[-1]
+    assert reply.startswith("❌") and "/task <projekt>" in reply and p in reply
+
+
+def test_telegram_task_without_args_shows_usage(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    before = env.sim.backlog_path.read_bytes()
+    env.tick(env.msg("/task"))
+    reply = env.bot.texts()[-1]
+    assert "/task <projekt>" in reply and all(n in reply for n in env.ctx.cfg.projects)
+    assert env.sim.backlog_path.read_bytes() == before
+
+
+def test_telegram_help_mentions_task(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    env.tick(env.msg("/help"))
+    assert "/task" in env.bot.texts()[-1]
 
 
 def test_act_add_unknown_project(tmp_path):
