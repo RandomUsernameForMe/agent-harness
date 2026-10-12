@@ -1,4 +1,3 @@
-import hashlib
 import re
 import subprocess
 import sys
@@ -27,9 +26,8 @@ def _proposal(project: str, path: str, line: int, text: str) -> Proposal | None:
     if not m:
         return None
     # id ignores the line number so a proposal survives code moving around it
-    digest = hashlib.sha1(f"{path}\0{text.strip()}".encode()).hexdigest()[:6]
     title = f"{m[1]}: {m[2].strip()}" if m[2].strip() else f"{m[1]} v {path}"
-    return Proposal(f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-todo-{digest}", project, path, line, title[:100])
+    return Proposal(backlog.task_id(project, "todo", f"{path}\0{text.strip()}"), project, path, line, title[:100])
 
 
 def scan_project(project: Project) -> list[Proposal]:
@@ -48,7 +46,8 @@ def scan_project(project: Project) -> list[Proposal]:
         if line.isdigit() and (p := _proposal(project.name, path, int(line), text)):
             props.append(p)
     props.sort(key=lambda p: (p.path, p.line))
-    return props
+    # the same comment twice in one file has one id; keep its first occurrence
+    return list({p.id: p for p in reversed(props)}.values())[::-1]
 
 
 def new_proposals(props: list[Proposal], tasks: list[Task]) -> list[Proposal]:

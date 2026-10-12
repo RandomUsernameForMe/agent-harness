@@ -33,7 +33,7 @@ Každé volání agenta se zapíše do `harness.db`, i když selže nebo narazí
 
 Plný transkript volání najdeš podle `session_id` v `~/.claude/projects/`. Ke kterému běhu, uzlu a úkolu volání patří, se zjistí z `config["metadata"]` LangGraphu, takže stav grafu kroky neobsahuje.
 
-`harness stats`, stejně jako začátek každého `run`/`go`, si přes `gh` zjistí stav PR úkolů a uloží ho do tabulky `task_outcomes`. Dashboard ukazuje volání agentů vybraného běhu (po kliknutí kroky) a cenu za úkol. Ceny jsou u subscription jen odhad SDK.
+`harness stats`, stejně jako začátek každého `run`/`go`, si přes `gh` zjistí stav PR úkolů a uloží ho do tabulky `task_outcomes`. Dashboard ukazuje volání agentů vybraného běhu (po kliknutí kroky) a cenu za úkol. Ceny jsou u subscription jen odhad SDK. Pod tabulkou úkolů vypíše `harness stats` souhrn po projektech a modelech plánovače (merged/closed/[!]/[?]/open a cena za zmergovaný PR), z něhož se čte výsledek A/B testu `plan_model`.
 
 ## Self-improvement (fáze 5)
 
@@ -47,7 +47,7 @@ Opus z toho navrhne krátké lekce pro jednotlivé projekty. Každou schvaluješ
 
 Důvod zamítnutí je nepovinný. V dashboardu se k němu dostaneš kliknutím na ❌, v Telegramu jako reply na zprávu zamítnutého návrhu.
 
-Když chyba leží v promptu harnessu (worker by selhal v jakémkoli projektu), reflexe zapíše návrh `[~]` do sekce `## harness`. Harness je v `projects.yaml` jako projekt s `discover: false` (go ani sken ho neprochází) a `allowed: ["harness/prompts/**", "CHANGELOG.md"]`. Guard tak zamítne jakoukoli změnu Python kódu. Výstup je draft PR a merge děláš ty.
+Když chyba leží v promptu harnessu (worker by selhal v jakémkoli projektu), reflexe zapíše návrh `[~]` do sekce `## harness`. Harness je v `projects.yaml` běžný projekt, `discover` nevypíná, takže ho prochází `harness go` i sken TODO. `allowed` jen vylučuje pojistky (`!harness/guard.py`, `!harness/sdk.py`, `!harness/quota.py`, `!projects.yaml`); zbytek kódu včetně promptů worker měnit smí. Výstup je draft PR a merge děláš ty.
 
 `prioritize` navíc dostane, jak jsi dosud naložil s úkoly každého projektu (hotovo, zamítnuto, selhalo, čeká).
 
@@ -85,7 +85,7 @@ Jde o jeden proces: Telegram bot (long polling, nepotřebuje veřejnou URL) a pl
 - po restartu naváže na rozběhnutý běh,
 - když běh spadne, vypne automatiku a pošle zprávu (zapne se příkazem `/resume`).
 
-Příkazy: `/status /queue /proposals /run /pause /resume /digest /help`. Updaty z jiného chatu se ignorují.
+Příkazy: `/status /queue /proposals /run /pause /resume /digest /help`, `/task <projekt> <titulek>` (další řádky = popis úkolu). Updaty z jiného chatu se ignorují.
 
 Nastavení:
 1. Přes [@BotFather](https://t.me/BotFather) založ **nový** bot (`/newbot`). Token secondbrain bota nepoužívej, dva pollery na jednom tokenu si navzájem kradou zprávy.

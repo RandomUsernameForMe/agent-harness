@@ -15,7 +15,7 @@ from langgraph.store.sqlite import SqliteStore
 
 from . import backlog, events, lessons, quota, serve, trace, traces
 from .graph import build_graph, initial_state
-from .nodes.common import (edit_backlog, make_approve, make_discover, make_pick_tasks, make_prioritize, make_reflect,
+from .nodes.common import (make_approve, make_discover, make_pick_tasks, make_prioritize, make_reflect,
                            make_report)
 from .nodes.real import git, real_explore, real_nodes, real_rank, real_reflect, worktree_path
 from .projects import load_config
@@ -158,6 +158,13 @@ def cmd_stats(args) -> int:
     for o in c["overhead"]:
         print(f"režie {o['run_id']} {o['node']}: {o['calls']}× {o['tokens'] or 0} tokenů "
               f"{traces.cost_label(o['cost_usd'], o['paid_usd'])}")
+    if c["tasks"]:
+        print("souhrn (projekt × model plánovače)")
+        for g in traces.summary(conn):
+            per = "-" if g["cost_per_merged"] is None else _money(g["cost_per_merged"])
+            print(f"{g['project']:<14} {g['plan_model']:<10} úkoly {g['tasks']:>3} merged {g['merged']:>3} "
+                  f"closed {g['closed']:>3} [!] {g['failed']:>3} [?] {g['unclear']:>3} open {g['open']:>3} "
+                  f"~${_money(g['cost_usd'])} ~$/merged {per}")
     rows = c["tasks"] + c["overhead"]
     total, paid = (sum(r[k] or 0 for r in rows) for k in ("cost_usd", "paid_usd"))
     print(f"celkem {traces.cost_label(total, paid)}" if rows else "žádná zaznamenaná volání")
@@ -174,15 +181,16 @@ def cmd_go(args) -> int:
 
 def _scan_into(cfg, backlog_path: Path) -> int:
     """Scan outside the backlog lock (git fetch is slow), then append only proposals still unknown."""
-    _, props = scan_all(cfg, backlog_path.read_bytes().decode("utf-8"))
+    _, props = scan_all(cfg, backlog.read(backlog_path))
 
     def add(text: str) -> str:
         known = {t.id for t in backlog.parse(text)}
         for p in props:
             if p.id not in known:
                 text = backlog.add_tasks(text, p.project, proposal_lines(p))
+                known.add(p.id)
         return text
-    edit_backlog(backlog_path, add)
+    backlog.edit(backlog_path, add)
     return len(props)
 
 
@@ -247,7 +255,7 @@ def cmd_lessons(args) -> int:
 
 def cmd_prune(args) -> int:
     cfg = load_config(args.home / "projects.yaml")
-    done = {t.id for t in backlog.parse((args.home / "BACKLOG.md").read_bytes().decode("utf-8")) if t.status == "x"}
+    done = {t.id for t in backlog.parse(backlog.read(args.home / "BACKLOG.md")) if t.status == "x"}
     for project in cfg.projects.values():
         for task_id in done:
             path = worktree_path(project, task_id)
@@ -258,8 +266,7 @@ def cmd_prune(args) -> int:
 
 
 def _read_backlog(home: Path) -> str:
-    path = home / "BACKLOG.md"
-    return path.read_bytes().decode("utf-8") if path.exists() else ""
+    return backlog.read(home / "BACKLOG.md")
 
 
 def cmd_queue(args) -> int:

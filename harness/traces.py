@@ -101,6 +101,25 @@ def costs(conn) -> dict:
     return {"tasks": tasks, "overhead": overhead}
 
 
+def summary(conn) -> list[dict]:
+    """Tasks grouped by (project, planner model); a task without a plan call (ACCEPT skips it) gets '-'."""
+    plan_models = {r["worker"]: r["model"] for r in _rows(conn, """
+        SELECT worker, model FROM agent_calls WHERE id IN (
+          SELECT MIN(id) FROM agent_calls WHERE node = 'plan' AND worker IS NOT NULL GROUP BY worker)""")}
+    groups: dict[tuple, dict] = {}
+    for t in costs(conn)["tasks"]:
+        key = (t["project"] or "-", plan_models.get(t["task_id"]) or "-")
+        g = groups.setdefault(key, {"project": key[0], "plan_model": key[1], "tasks": 0, "merged": 0, "closed": 0,
+                                    "failed": 0, "unclear": 0, "open": 0, "cost_usd": 0.0})
+        g["tasks"] += 1
+        if t["state"] in g:
+            g[t["state"]] += 1
+        g["cost_usd"] += t["cost_usd"]
+    return [g | {"cost_usd": round(g["cost_usd"], 6),
+                 "cost_per_merged": round(g["cost_usd"] / g["merged"], 2) if g["merged"] else None}
+            for _, g in sorted(groups.items())]
+
+
 def backfill(conn) -> int:
     """Calls of real runs from before the ledger, rebuilt from event-log usage (no steps, no cache tokens)."""
     with _lock:
@@ -131,16 +150,8 @@ def pr_urls(text: str) -> dict[str, str]:
 
 def pr_state(url: str) -> str | None:
     """open / merged / closed from gh; None when gh fails (state is then left as it was)."""
-    try:
-        out = subprocess.run(["gh", "pr", "view", url, "--json", "state", "-q", ".state"],
-                             capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired) as e:  # gh missing or hanging must not block a run start
-        print(f"gh pr view {url}: {type(e).__name__}: {e}", file=sys.stderr)
-        return None
-    if out.returncode != 0:
-        print(f"gh pr view {url}: {out.stderr.strip()}", file=sys.stderr)
-        return None
-    return out.stdout.strip().lower() or None
+    out = _gh_stdout(["pr", "view", url, "--json", "state", "-q", ".state"], None, f"gh pr view {url}")
+    return None if out is None else out.strip().lower() or None
 
 
 PEOPLE = ("OWNER", "MEMBER", "COLLABORATOR")  # not bots like vercel, which comment on every PR
@@ -155,51 +166,53 @@ def review_text(data: dict) -> str:
 
 def pr_feedback(url: str) -> tuple[str, str] | None:
     """(state, review comments of people) of a PR; None when gh fails."""
-    try:
-        out = subprocess.run(["gh", "pr", "view", url, "--json", "state,reviews,comments"],
-                             capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        print(f"gh pr view {url}: {type(e).__name__}: {e}", file=sys.stderr)
+    out = _gh_stdout(["pr", "view", url, "--json", "state,reviews,comments"], None, f"gh pr view {url}")
+    if out is None:
         return None
-    if out.returncode != 0:
-        print(f"gh pr view {url}: {out.stderr.strip()}", file=sys.stderr)
-        return None
-    data = json.loads(out.stdout or "{}")
+    data = json.loads(out or "{}")
     return str(data.get("state", "")).lower(), review_text(data)
 
 
 def open_prs(repo_dir) -> list[dict] | None:
     """Open PRs of the repo checked out in repo_dir; None when gh fails."""
-    try:
-        out = _gh(["pr", "list", "--state", "open", "--json",
-                   "number,title,url,isDraft,createdAt,mergeable,statusCheckRollup,"
-                   "headRefName,baseRefName,headRefOid"], repo_dir)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        print(f"gh pr list in {repo_dir}: {type(e).__name__}: {e}", file=sys.stderr)
+    out = _gh_stdout(["pr", "list", "--state", "open", "--json",
+                      "number,title,url,isDraft,createdAt,mergeable,statusCheckRollup,"
+                      "headRefName,baseRefName,headRefOid"], repo_dir, f"gh pr list in {repo_dir}")
+    if out is None:
         return None
-    if out.returncode != 0:
-        print(f"gh pr list in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
-        return None
-    return [pr | {"ci": ci_state(pr.pop("statusCheckRollup", None) or [])} for pr in json.loads(out.stdout or "[]")]
+    return [pr | {"ci": ci_state(pr.pop("statusCheckRollup", None) or [])} for pr in json.loads(out or "[]")]
+
+
+def recent_prs(repo_dir, limit: int = 40) -> list[dict] | None:
+    """Latest PRs of any state (number, title, state); None when gh fails."""
+    out = _gh_stdout(["pr", "list", "--state", "all", "--limit", str(limit), "--json", "number,title,state"],
+                     repo_dir, f"gh pr list --state all in {repo_dir}")
+    return None if out is None else json.loads(out or "[]")
 
 
 def merged_since(repo_dir, ts: float) -> int | None:
     """Number of PRs merged into the repo after ts; None when gh fails."""
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
-    try:
-        out = _gh(["pr", "list", "--state", "merged", "--search", f"merged:>{since}",
-                   "--limit", "1000", "--json", "number"], repo_dir)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        print(f"gh pr list --state merged in {repo_dir}: {type(e).__name__}: {e}", file=sys.stderr)
-        return None
-    if out.returncode != 0:
-        print(f"gh pr list --state merged in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
-        return None
-    return len(json.loads(out.stdout or "[]"))
+    out = _gh_stdout(["pr", "list", "--state", "merged", "--search", f"merged:>{since}",
+                      "--limit", "1000", "--json", "number"], repo_dir, f"gh pr list --state merged in {repo_dir}")
+    return None if out is None else len(json.loads(out or "[]"))
 
 
 def _gh(args: list[str], cwd) -> subprocess.CompletedProcess:
     return subprocess.run(["gh", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
+
+
+def _gh_stdout(args: list[str], cwd, label: str) -> str | None:
+    """stdout of gh; None (reported on stderr) when gh is missing, hangs or fails."""
+    try:
+        out = _gh(args, cwd)
+    except (OSError, subprocess.TimeoutExpired) as e:  # gh missing or hanging must not block a run start
+        print(f"{label}: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    if out.returncode != 0:
+        print(f"{label}: {out.stderr.strip()}", file=sys.stderr)
+        return None
+    return out.stdout
 
 
 def ci_state(checks: list[dict]) -> str | None:
@@ -231,11 +244,11 @@ def _drop_branch(repo_dir, branch: str) -> None:
             print(f"git {' '.join(args)} in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
 
 
-def _git(args: list[str], cwd) -> subprocess.CompletedProcess:
+def git_run(args: list[str], cwd) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8")
 
 
-def _union_changelog(wt: Path) -> None:
+def union_changelog(wt: Path) -> None:
     """Resolve a CHANGELOG.md conflict by keeping the lines of both sides (each PR appends its own entry)."""
     stages = {}
     for n in (1, 2, 3):
@@ -246,8 +259,20 @@ def _union_changelog(wt: Path) -> None:
         base.write_bytes(stages[1])
         theirs.write_bytes(stages[3])
         (wt / CHANGELOG).write_bytes(stages[2])
-        _git(["merge-file", "--union", CHANGELOG, str(base), str(theirs)], wt)
-    _must(_git(["add", CHANGELOG], wt))
+        git_run(["merge-file", "--union", CHANGELOG, str(base), str(theirs)], wt)
+    _must(git_run(["add", CHANGELOG], wt))
+
+
+def _unmerged(wt: Path) -> list[str]:
+    return git_run(["diff", "--name-only", "--diff-filter=U"], wt).stdout.split()
+
+
+def settle_changelog(wt: Path) -> list[str]:
+    """Union-merge a conflicted CHANGELOG.md and return the other conflicting files."""
+    conflicts = _unmerged(wt)
+    if CHANGELOG in conflicts:
+        union_changelog(wt)
+    return [c for c in conflicts if c != CHANGELOG]
 
 
 class ContentConflict(RuntimeError):
@@ -259,17 +284,16 @@ class ContentConflict(RuntimeError):
 
 
 def _rebase_keeping_changelogs(wt: Path, onto: str) -> None:
-    out = _git(["rebase", onto], wt)
+    out = git_run(["rebase", onto], wt)
     while out.returncode != 0:
-        conflicts = _git(["diff", "--name-only", "--diff-filter=U"], wt).stdout.split()
-        if conflicts != [CHANGELOG]:
-            _git(["rebase", "--abort"], wt)
-            others = [c for c in conflicts if c != CHANGELOG]
+        had_changelog = CHANGELOG in _unmerged(wt)
+        others = settle_changelog(wt)
+        if others or not had_changelog:
+            git_run(["rebase", "--abort"], wt)
             if not others:
                 raise RuntimeError(f"rebase selhal: {out.stderr.strip()}")
             raise ContentConflict(others)
-        _union_changelog(wt)
-        out = _git(["-c", "core.editor=true", "rebase", "--continue"], wt)
+        out = git_run(["-c", "core.editor=true", "rebase", "--continue"], wt)
 
 
 def changelog_fixable(pr: dict) -> bool:
@@ -280,14 +304,14 @@ def changelog_fixable(pr: dict) -> bool:
 def resolve_changelog_conflict(repo_dir, branch: str, base: str) -> None:
     """Rebase a PR branch onto origin/base in a throwaway worktree and force-push it; a conflict only in
     CHANGELOG.md keeps both entries, any other conflict raises RuntimeError and pushes nothing."""
-    _must(_git(["fetch", "-q", "origin", base, branch], repo_dir))
+    _must(git_run(["fetch", "-q", "origin", base, branch], repo_dir))
     wt = Path(tempfile.mkdtemp(prefix="harness-rebase-"))
-    _must(_git(["worktree", "add", "-q", "--detach", str(wt), f"origin/{branch}"], repo_dir))
+    _must(git_run(["worktree", "add", "-q", "--detach", str(wt), f"origin/{branch}"], repo_dir))
     try:
         _rebase_keeping_changelogs(wt, f"origin/{base}")
-        _must(_git(["push", "-q", f"--force-with-lease={branch}:origin/{branch}", "origin", f"HEAD:{branch}"], wt))
+        _must(git_run(["push", "-q", f"--force-with-lease={branch}:origin/{branch}", "origin", f"HEAD:{branch}"], wt))
     finally:
-        _git(["worktree", "remove", "--force", str(wt)], repo_dir)
+        git_run(["worktree", "remove", "--force", str(wt)], repo_dir)
 
 
 def requeue_pr(repo_dir, number: int, branch: str) -> None:

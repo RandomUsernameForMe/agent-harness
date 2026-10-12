@@ -2,9 +2,7 @@
 
 One run at a time, executed by `spawn` (a thread in production). The main loop long-polls Telegram and makes
 every decision, so the daemon state is only touched from one thread; the run thread just hands back its result."""
-import hashlib
 import json
-import re
 import sys
 import threading
 import time as _time
@@ -16,7 +14,6 @@ from typing import Callable
 
 from . import backlog, events, lessons, traces
 from .discover import LENSES, safe_title, task_lines
-from .nodes.common import edit_backlog
 from .priority import config_focus, rank
 from .projects import Config
 from .runner import approvals, execute, questions, resets_at, run_config
@@ -25,8 +22,10 @@ from .telegram import Buttons, TelegramError
 POLL_SECONDS = 20
 UNKNOWN_RESET_WAIT = 15 * 60  # rate limit without a reset time: don't hammer it every tick
 ACTIVE = ("running", "waiting", "paused", "approving")
+TASK_USAGE = "/task <projekt> <titulek> — přidat úkol (další řádky = popis)"
 HELP = ("Příkazy:\n/status — stav démona\n/queue — fronta úkolů\n/proposals — znovu poslat návrhy ke schválení\n"
-        "/run — spustit běh hned\n/pause, /resume — vypnout/zapnout automatický start\n/digest — přehled teď\n\n"
+        "/run — spustit běh hned\n/pause, /resume — vypnout/zapnout automatický start\n/digest — přehled teď\n"
+        f"{TASK_USAGE}\n\n"
         "Na dotaz k nejasnému úkolu odpověz reply na jeho zprávu.")
 
 
@@ -99,7 +98,7 @@ def _quiet(fn: Callable, *args) -> None:
 
 
 def _backlog_text(ctx: Ctx) -> str:
-    return ctx.backlog_path.read_bytes().decode("utf-8") if ctx.backlog_path.exists() else ""
+    return backlog.read(ctx.backlog_path)
 
 
 def _tasks(ctx: Ctx) -> list[backlog.Task]:
@@ -283,17 +282,13 @@ def _rejected(reason: str) -> str:
 
 
 def _decide(ctx: Ctx, task_id: str, approve: bool, reason: str = "") -> str:
-    note = []
-
-    def change(text: str) -> str:
+    def change(text: str) -> tuple[str, str]:
         t = next((t for t in backlog.parse(text) if t.id == task_id), None)
         if t is None or t.status != "~":
-            note.append("už vyřízeno")
-            return text
-        note.append("schváleno → fronta" if approve else "zamítnuto")
-        return backlog.set_status(text, task_id, " " if approve else "-", "" if approve else _rejected(reason))
-    edit_backlog(ctx.backlog_path, change)
-    return note[0]
+            return text, "už vyřízeno"
+        new = backlog.set_status(text, task_id, " " if approve else "-", "" if approve else _rejected(reason))
+        return new, "schváleno → fronta" if approve else "zamítnuto"
+    return backlog.edit_with(ctx.backlog_path, change)
 
 
 def _reason(ctx: Ctx, task_id: str, reason: str) -> str:
@@ -301,7 +296,7 @@ def _reason(ctx: Ctx, task_id: str, reason: str) -> str:
     def change(text: str) -> str:
         t = next((t for t in backlog.parse(text) if t.id == task_id), None)
         return backlog.set_status(text, task_id, "-", _rejected(reason)) if t and t.status == "-" else text
-    edit_backlog(ctx.backlog_path, change)
+    backlog.edit(ctx.backlog_path, change)
     return f"📝 {task_id}: důvod uložen, reflexe se z něj poučí."
 
 
@@ -313,18 +308,36 @@ def _add_task(ctx: Ctx, project: str, title: str, description: str = "", done: s
         raise ValueError("prázdný titulek")
     if priority not in (1, 2, 3):
         raise ValueError("priorita musí být 1–3")
-    task_id = f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-m-{hashlib.sha1(title.encode()).hexdigest()[:6]}"
+    task_id = backlog.task_id(project, "m", title)
+    def change(text: str) -> tuple[str, str]:
+        if any(t.id == task_id or (t.project == project and t.title.casefold() == title.casefold()) for t in backlog.parse(text)):
+            return text, f"➖ {task_id}: už existuje."
+        lines = task_lines({"id": task_id, "title": title, "description": description, "done": " ".join(done.split())}, " ")
+        lines[0] = f"- [ ] P{priority} {task_id} {title}"
+        return backlog.add_tasks(text, project, lines), f"➕ {task_id} přidán do fronty [{project}]."
+    return backlog.edit_with(ctx.backlog_path, change)
+
+
+def _edit_task(ctx: Ctx, task_id: str, title: str, description: str, done: str, priority: int, approve: bool) -> str:
+    title = safe_title(title)[:100]
+    if not title:
+        raise ValueError("prázdný titulek")
+    if priority not in (1, 2, 3):
+        raise ValueError("priorita musí být 1–3")
     note = []
 
     def change(text: str) -> str:
-        if any(t.id == task_id or t.title.casefold() == title.casefold() for t in backlog.parse(text)):
-            note.append(f"➖ {task_id}: už existuje.")
+        t = next((t for t in backlog.parse(text) if t.id == task_id), None)
+        if t is None or t.status != "~":
+            note.append("už vyřízeno")
             return text
-        lines = task_lines({"id": task_id, "title": title, "description": description, "done": " ".join(done.split())}, " ")
-        lines[0] = f"- [ ] P{priority} {task_id} {title}"
-        note.append(f"➕ {task_id} přidán do fronty [{project}].")
-        return backlog.add_tasks(text, project, lines)
-    edit_backlog(ctx.backlog_path, change)
+        accept = [r for r in t.description.splitlines() if r.startswith("ACCEPT:")]
+        body = [r.strip() for r in description.splitlines() if r.strip()]
+        body += [f"Hotovo = {' '.join(done.split())}"] if done.strip() else []
+        kind = f"[{t.kind}] " if t.kind else ""
+        note.append("upraveno → fronta" if approve else "upraveno")
+        return backlog.replace_task(text, task_id, priority, " " if approve else "~", kind + title, body + accept)
+    backlog.edit(ctx.backlog_path, change)
     return note[0]
 
 
@@ -334,7 +347,7 @@ def _task_cmd(ctx: Ctx, text: str) -> str:
     try:
         return _add_task(ctx, parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else "", rest)
     except ValueError as e:
-        return f"❌ {e}"
+        return f"❌ {e}\nPoužití: {TASK_USAGE}\nProjekty: {', '.join(ctx.cfg.projects)}"
 
 
 # --- lessons ----------------------------------------------------------------------------------------------
@@ -578,6 +591,10 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
             reply = _add_task(ctx, str(data.get("project") or ""), str(data.get("title") or ""),
                               str(data.get("description") or ""), str(data.get("done") or ""),
                               int(data.get("priority") or 2))
+        elif action == "edit":
+            reply = _edit_task(ctx, str(data.get("task")), str(data.get("title") or ""),
+                               str(data.get("description") or ""), str(data.get("done") or ""),
+                               int(data.get("priority") or 2), bool(data.get("approve")))
         elif action in ("pause", "resume"):
             reply = _command(ctx, action)
         else:

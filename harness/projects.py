@@ -20,7 +20,7 @@ class Project:
     max_attempts: int
     max_diff_lines: int
     weight: int = 0
-    discover: bool = True  # false: `go` discover and the TODO scan skip it (tasks only from reflection / by hand)
+    discover: bool = True  # false: `go` discover and the marker scan skip it (tasks only from reflection / by hand)
 
 
 @dataclass(frozen=True)

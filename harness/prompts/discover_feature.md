@@ -13,6 +13,8 @@ Every feature must:
 {verify}
 - not repeat an existing backlog task (including done or rejected ones):
 {known}
+- not already solved or in progress in another PR or commit (open or merged; a task whose change is already there must not be proposed):
+{recent}
 
 Owner's notes:
 {notes}

@@ -1,4 +1,3 @@
-import threading
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable
@@ -12,17 +11,8 @@ from ..graph import RateLimited
 from ..priority import config_focus, pick_batch, rank
 from ..projects import Config
 
-# parallel workers report into the same BACKLOG.md (read-modify-write)
-_backlog_lock = threading.Lock()
-
-
-def _read(path: Path) -> str:
-    return path.read_bytes().decode("utf-8")
-
-
-def edit_backlog(path: Path, fn: Callable[[str], str]) -> None:
-    with _backlog_lock:
-        path.write_bytes(fn(_read(path)).encode("utf-8"))
+# parallel workers report into the same BACKLOG.md (read-modify-write); re-exported for existing importers
+edit_backlog = backlog.edit
 
 
 def make_pick_tasks(backlog_path: Path, cfg: Config):
@@ -32,8 +22,8 @@ def make_pick_tasks(backlog_path: Path, cfg: Config):
         left = state.get("max_tasks", cfg.max_tasks_per_run) - state.get("tasks_done", 0)
         if left <= 0 or (state.get("quota") or 0) >= state.get("quota_threshold", cfg.quota_threshold):
             return {"batch": []}
-        with _backlog_lock:
-            tasks = backlog.parse(_read(backlog_path))
+        with backlog.LOCK:
+            tasks = backlog.parse(backlog.read(backlog_path))
         planned = state.get("planned")
         if planned is None:
             ranked = rank(tasks, set(state.get("only") or cfg.projects), config_focus(cfg), weights)
@@ -77,8 +67,8 @@ def make_discover(backlog_path: Path, explore: Callable[[str, list[Task], str], 
     A failure costs only that lens of this project. `explore` returns the model's answer and {"usage", "quota"}."""
     def discover(state: dict) -> dict:
         name = state["project"]
-        with _backlog_lock:
-            known = [t for t in backlog.parse(_read(backlog_path)) if t.project == name]
+        with backlog.LOCK:
+            known = [t for t in backlog.parse(backlog.read(backlog_path)) if t.project == name]
         out: dict = {"proposals": [], "go_errors": [], "usage": [], "quota": None}
         for lens in state.get("lenses") or DEFAULT_LENSES:
             seen = known + _as_tasks(out["proposals"])
@@ -109,8 +99,8 @@ def make_prioritize(backlog_path: Path, cfg: Config,
     weights = {name: p.weight for name, p in cfg.projects.items()}
 
     def prioritize(state: dict) -> dict:
-        with _backlog_lock:
-            tasks = backlog.parse(_read(backlog_path))
+        with backlog.LOCK:
+            tasks = backlog.parse(backlog.read(backlog_path))
         cands = candidates(state.get("proposals") or [], tasks, set(state.get("only") or cfg.projects))
         if not cands:
             return {"plan": []}
@@ -156,8 +146,8 @@ def make_reflect(backlog_path: Path, reflect_fn: Callable[[list[dict], list[dict
         store = lessons.current_store()
         if store is None:
             return {}
-        with _backlog_lock:
-            text = _read(backlog_path)
+        with backlog.LOCK:
+            text = backlog.read(backlog_path)
         seen = {i.key for i in store.search(lessons.SEEN, limit=100_000)}
         items, quiet = lessons.gather_feedback(text, seen, pr_info)
         mark = {"run": state.get("run_id")}
