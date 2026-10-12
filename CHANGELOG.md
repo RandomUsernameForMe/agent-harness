@@ -77,3 +77,4 @@
 ## [2026-10-12] - README: popis projektu harness v projects.yaml odpovídá skutečné konfiguraci
 ## [2026-10-12] - Dashboard: úprava návrhu před schválením (akce edit, ✏️)
 ## [2026-10-12] - traces.py: veřejné settle_changelog/git_run/union_changelog, real.py už nesahá na privátní jména traces
+## [2026-10-12] - Dashboard: kontrola origin jako závislost require_local_origin a helper _project
