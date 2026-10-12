@@ -88,3 +88,24 @@ def test_scan_marker_only_at_comment_start(tmp_path):
     props = scan_project(project(repo))
     assert [(p.path, p.title) for p in props] == [
         ("a.py", "TODO: opravit"), ("b.js", "FIXME: y"), ("c.js", "TODO: z")]
+
+
+def test_scan_duplicate_marker_in_one_file_gives_one_proposal(tmp_path):
+    repo = make_repo(tmp_path)
+    commit_files(repo, {"a.py": "# TODO: fix\nx = 1\n# TODO: fix\n"})
+    [p] = scan_project(project(repo))
+    assert (p.path, p.line) == ("a.py", 1)
+    cfg = Config("subscription", 3, 0.7, {"demo": project(repo)})
+    text, found = scan_all(cfg, "## demo\n")
+    assert len(found) == 1 and len(parse(text)) == 1
+
+
+def test_daemon_scan_duplicate_marker_parses(tmp_path):
+    from harness.cli import _scan_into
+    repo = make_repo(tmp_path)
+    commit_files(repo, {"a.py": "# TODO: fix\nx = 1\n# TODO: fix\n"})
+    cfg = Config("subscription", 3, 0.7, {"demo": project(repo)})
+    backlog_path = tmp_path / "BACKLOG.md"
+    backlog_path.write_bytes(b"## demo\n")
+    assert _scan_into(cfg, backlog_path) == 1
+    assert len(parse(backlog_path.read_bytes().decode("utf-8"))) == 1

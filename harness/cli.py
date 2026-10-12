@@ -181,6 +181,7 @@ def _scan_into(cfg, backlog_path: Path) -> int:
         for p in props:
             if p.id not in known:
                 text = backlog.add_tasks(text, p.project, proposal_lines(p))
+                known.add(p.id)
         return text
     backlog.edit(backlog_path, add)
     return len(props)

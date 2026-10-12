@@ -46,7 +46,8 @@ def scan_project(project: Project) -> list[Proposal]:
         if line.isdigit() and (p := _proposal(project.name, path, int(line), text)):
             props.append(p)
     props.sort(key=lambda p: (p.path, p.line))
-    return props
+    # the same comment twice in one file has one id; keep its first occurrence
+    return list({p.id: p for p in reversed(props)}.values())[::-1]
 
 
 def new_proposals(props: list[Proposal], tasks: list[Task]) -> list[Proposal]:
