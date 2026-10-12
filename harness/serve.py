@@ -2,9 +2,7 @@
 
 One run at a time, executed by `spawn` (a thread in production). The main loop long-polls Telegram and makes
 every decision, so the daemon state is only touched from one thread; the run thread just hands back its result."""
-import hashlib
 import json
-import re
 import sys
 import threading
 import time as _time
@@ -315,7 +313,7 @@ def _add_task(ctx: Ctx, project: str, title: str, description: str = "", done: s
         raise ValueError("prázdný titulek")
     if priority not in (1, 2, 3):
         raise ValueError("priorita musí být 1–3")
-    task_id = f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-m-{hashlib.sha1(title.encode()).hexdigest()[:6]}"
+    task_id = backlog.task_id(project, "m", title)
     note = []
 
     def change(text: str) -> str:

@@ -1,12 +1,19 @@
+import hashlib
 import re
 from dataclasses import dataclass
 
 HEADER_RE = re.compile(r"^## (?P<project>\S+)\s*$")
-# id becomes a git branch name and CLI argument → restrict to safe characters
+# id becomes a git branch name and CLI argument → restrict to safe characters; task_id() is the only creator
 TASK_RE = re.compile(r"^- \[(?P<status>[ x!?~-])\] P(?P<prio>[1-3]) (?P<id>[A-Za-z0-9._-]+) (?P<rest>.+)$")
 SUFFIX_RE = re.compile(r" (?:→|—) ")
 # proposal kind as a title prefix: "- [~] P2 id [feature] Title"; set_status keeps it untouched
 KIND_RE = re.compile(r"^\[(?P<kind>test|bug|debt|feature|docs|refactor)\] (?P<title>.+)$")
+
+
+def task_id(project: str, kind: str, seed: str) -> str:
+    """kind: "ai" (discover), "m" (manual), "todo" (scan)."""
+    digest = hashlib.sha1(seed.encode()).hexdigest()[:6]
+    return f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-{kind}-{digest}"
 
 
 @dataclass(frozen=True)
