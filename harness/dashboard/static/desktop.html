@@ -111,17 +111,42 @@
               --ok:#3f9b3f; --bad:#c0392b; --warn:#e6a100; --on-accent:#2b1d0e;
               font-family:"Comic Sans MS", "Chalkboard SE", cursive;
               background:linear-gradient(#bfe6ff 0 55%, #8ed16f 55% 100%) fixed; }
-  body.samm section { border-width:3px; border-radius:28px 28px 18px 18px; backdrop-filter:none;
+  /* hand-drawn wobble: uneven corner radii + hard offset shadow */
+  body.samm section { border-width:3px; border-radius:22px 34px 18px 30px / 30px 18px 34px 22px; backdrop-filter:none;
     background:radial-gradient(circle at calc(100% + 6px) -6px, #1a1a1a 0 26px, transparent 27px),
                radial-gradient(ellipse 22px 14px at calc(100% - 4px) calc(100% + 2px), #1a1a1a 99%, transparent), #fff;
-    box-shadow:4px 5px 0 #2b1d0e; }
+    box-shadow:6px 7px 0 #2b1d0e; }
   body.samm h1 { font-size:34px; color:#fff; -webkit-text-stroke:1.5px #2b1d0e; text-shadow:3px 3px 0 var(--accent); }
   body.samm #subtitle { display:block; flex-basis:100%; margin-top:-10px; font-style:italic; color:#2b1d0e; }
-  body.samm h2 { color:#2b1d0e; }
-  body.samm h2::before { content:"🐄 "; }
-  body.samm button { background:#fff; border-width:2px; border-radius:999px; color:var(--text); }
+  body.samm h2 { display:inline-block; color:#2b1d0e; background:#fff3a8; border:2px solid #2b1d0e; border-radius:8px 14px 9px 12px;
+    padding:2px 10px; transform:rotate(-1.5deg); box-shadow:2px 2px 0 #2b1d0e; }
+  body.samm button { background:#fff3a8; border:3px solid #2b1d0e; border-radius:16px 22px 14px 20px / 20px 14px 22px 16px;
+    color:var(--text); font-weight:700; box-shadow:3px 3px 0 #2b1d0e; transition:transform .08s, box-shadow .08s; }
+  body.samm button:not(:disabled):hover { transform:translate(-1px, -2px) rotate(-1deg); box-shadow:4px 5px 0 #2b1d0e; }
+  body.samm button:not(:disabled):active { transform:translate(3px, 3px); box-shadow:0 0 0 #2b1d0e; }
   body.samm button.primary { background:var(--accent); }
-  body.samm button.action { border-radius:40px 40px 20px 20px; box-shadow:3px 4px 0 #2b1d0e; }
+  body.samm button[aria-pressed=true] { background:#9be7ff; }
+  body.samm button.action { border-radius:34px 46px 26px 40px / 40px 26px 46px 34px; box-shadow:5px 6px 0 #2b1d0e; }
+  body.samm button.action:nth-child(2) { background:#bdeaff; }
+  body.samm button.action:nth-child(3) { background:#c9f5c0; }
+  body.samm button.action b { font-size:19px; }
+  body.samm :is(label.chip, .stage, .node, .tag) { border:2px solid #2b1d0e; box-shadow:2px 2px 0 #2b1d0e; background:#fff; }
+  body.samm .stage { border-radius:12px 18px 10px 16px; }
+
+  /* the cow grazes on the meadow behind the panels */
+  #cow { display:none; }
+  body.samm #cow { display:block; position:fixed; left:0; bottom:14px; width:240px; z-index:0; pointer-events:none;
+    animation:graze 46s linear infinite; }
+  body.samm .wrap { position:relative; z-index:1; }
+  #cow svg { width:100%; display:block; animation:bob .5s ease-in-out infinite alternate; }
+  #cow .tail { transform-origin:36px 64px; animation:wag 1s ease-in-out infinite alternate; }
+  #cow .head { transform-origin:150px 66px; animation:nod 2.6s ease-in-out infinite; }
+  @keyframes graze { 0% { transform:translateX(-250px); } 48% { transform:translateX(100vw); }
+    50% { transform:translateX(100vw) scaleX(-1); } 98% { transform:translateX(-250px) scaleX(-1); } 100% { transform:translateX(-250px); } }
+  @keyframes bob { to { transform:translateY(-4px); } }
+  @keyframes wag { from { transform:rotate(-12deg); } to { transform:rotate(14deg); } }
+  @keyframes nod { 0%, 70%, 100% { transform:rotate(0); } 80% { transform:rotate(9deg); } 90% { transform:rotate(-3deg); } }
+  @media (prefers-reduced-motion:reduce) { #cow, #cow * { animation:none !important; } }
   body.samm .dot { width:auto; height:auto; background:none; font-size:14px; }
   body.samm .dot::before { content:"🐄"; }
   body.samm .dot.crashed::before { content:"🥩"; }
@@ -131,7 +156,6 @@
   body.samm .chart rect { fill:#fff; stroke:#2b1d0e; stroke-width:.6; opacity:1; }
   body.samm .stage, body.samm .node, body.samm .tag { border-width:2px; }
   body.samm input:is([type=number], [type=text]), body.samm :is(select, textarea) { background:#fff; color:var(--text); }
-  body.samm #toast::before { content:"Bůůů! "; }
 
   /* blur: hide what PRs and tasks say, keep counts, states and buttons readable */
   body.blurred :is(li.pr a, li.prop summary, li.prop > span, details p, #plan .item > label > span,
@@ -139,6 +163,30 @@
 </style>
 </head>
 <body>
+<!-- wide-eyed, tousled-hair, grey-crewneck cow: a gentle nod to a certain AI CEO -->
+<div id="cow" aria-hidden="true"><svg viewBox="0 0 200 140" stroke="#2b1d0e" stroke-width="3" stroke-linejoin="round">
+  <path class="tail" d="M38 64 Q22 74 26 98" fill="none"/><circle class="tail" cx="26" cy="100" r="5" fill="#2b1d0e"/>
+  <g fill="#fff"><rect x="50" y="92" width="11" height="34" rx="4"/><rect x="68" y="94" width="11" height="32" rx="4"/>
+    <rect x="104" y="94" width="11" height="32" rx="4"/><rect x="121" y="92" width="11" height="34" rx="4"/></g>
+  <g fill="#2b1d0e" stroke="none"><rect x="50" y="120" width="11" height="7" rx="2"/><rect x="68" y="120" width="11" height="7" rx="2"/>
+    <rect x="104" y="120" width="11" height="7" rx="2"/><rect x="121" y="120" width="11" height="7" rx="2"/></g>
+  <ellipse cx="92" cy="74" rx="56" ry="32" fill="#fff"/>
+  <g fill="#1a1a1a" stroke="none"><ellipse cx="70" cy="62" rx="15" ry="10"/><ellipse cx="108" cy="88" rx="12" ry="7"/><ellipse cx="122" cy="60" rx="8" ry="6"/></g>
+  <ellipse cx="94" cy="104" rx="11" ry="6" fill="#ffb3c6"/>
+  <g class="head">
+    <path d="M136 72 Q146 56 160 64 Q156 80 140 82 Z" fill="#8d939c"/>
+    <ellipse cx="141" cy="36" rx="9" ry="5" fill="#fff" transform="rotate(-25 141 36)"/>
+    <ellipse cx="185" cy="36" rx="9" ry="5" fill="#fff" transform="rotate(25 185 36)"/>
+    <ellipse cx="163" cy="50" rx="23" ry="26" fill="#fff"/>
+    <path d="M141 38 Q142 22 154 24 Q158 14 168 20 Q176 14 182 24 Q188 30 185 40 Q176 30 166 33 Q156 28 141 38 Z" fill="#5a3f2c"/>
+    <path d="M148 39 Q153 36 158 38 M168 38 Q173 36 178 39" fill="none" stroke-width="2.2"/>
+    <circle cx="154" cy="47" r="6.5" fill="#fff" stroke-width="2.2"/><circle cx="172" cy="47" r="6.5" fill="#fff" stroke-width="2.2"/>
+    <circle cx="154" cy="47" r="2.4" fill="#2b1d0e" stroke="none"/><circle cx="172" cy="47" r="2.4" fill="#2b1d0e" stroke="none"/>
+    <ellipse cx="163" cy="66" rx="14" ry="9" fill="#ffc4d0"/>
+    <ellipse cx="158" cy="64" rx="1.8" ry="2.6" fill="#2b1d0e" stroke="none"/><ellipse cx="168" cy="64" rx="1.8" ry="2.6" fill="#2b1d0e" stroke="none"/>
+    <path d="M158 71 Q163 73 168 71" fill="none" stroke-width="1.8"/>
+  </g>
+</svg></div>
 <div class="wrap">
   <header>
     <h1 data-samm="SAMM">Harness</h1>
@@ -153,11 +201,11 @@
     <section id="flow">
       <div class="actions">
         <button class="action primary" data-act="run" data-path="pick_tasks worker reflect">
-          <b data-samm="🥛 Podojit frontu">▶ Zpracovat frontu</b><span id="runSub">Implementuje úkoly [ ] z BACKLOGu a otevře PR</span></button>
+          <b>▶ Zpracovat frontu</b><span id="runSub">Implementuje úkoly [ ] z BACKLOGu a otevře PR</span></button>
         <button class="action" data-act="go" data-path="discover prioritize approve pick_tasks worker reflect">
-          <b data-samm="🌾 Vyhnat na pastvu">🔍 Najít a naplánovat</b><span data-samm="Opus obejde louky, najde šťavnatou trávu; plán podojení schválíš tady">Opus projde projekty, navrhne úkoly; plán schválíš tady, pak je zpracuje</span></button>
+          <b>🔍 Najít a naplánovat</b><span>Opus projde projekty, navrhne úkoly; plán schválíš tady, pak je zpracuje</span></button>
         <button class="action" data-act="go" data-lenses="cleanup" data-path="discover prioritize approve pick_tasks worker reflect">
-          <b data-samm="🧽 Vydrhnout dojírnu">🧹 Revize čistoty kódu</b><span data-samm="Opus vymete chlév, najde kravince ve spaghetti a navrhne úklid">Opus projde celé repo, najde spaghetti a navrhne refaktory; plán schválíš tady</span></button>
+          <b>🧹 Revize čistoty kódu</b><span>Opus projde celé repo, najde spaghetti a navrhne refaktory; plán schválíš tady</span></button>
       </div>
       <div class="row" id="scope" style="margin-top:10px"></div>
       <div class="row" id="lenses" style="margin-top:6px; font-size:13px"><span class="muted">Hledat:</span>
@@ -170,15 +218,15 @@
       <div id="workers"></div>
       <div id="flowHint" class="muted"></div>
     </section>
-    <section id="planBox" class="attention" hidden><h2 data-samm="Dojicí plán ke schválení">Plán ke schválení</h2><div id="plan"></div></section>
-    <section id="questionBox" class="attention" hidden><h2 data-samm="Kráva se ptá">Dotazy k úkolům</h2><div id="questions"></div></section>
+    <section id="planBox" class="attention" hidden><h2>Plán ke schválení</h2><div id="plan"></div></section>
+    <section id="questionBox" class="attention" hidden><h2>Dotazy k úkolům</h2><div id="questions"></div></section>
     <div class="projects" id="projects"></div>
   </div>
 
   <div class="col">
-    <section><h2 data-samm="Stav vemene">Kvóta subscription</h2><div id="quota" class="muted">bez dat — žádný běh zatím nenahlásil využití</div></section>
-    <section class="chart"><h2 data-samm="Nadojeno po dnech (litry tokenů)">Tokeny po dnech (14 dní)</h2><div id="chart"></div><div id="cost" class="muted"></div></section>
-    <section id="lessonsBox" hidden><h2 data-samm="Moudra starého bači">Lekce z reflexe</h2><div id="lessons"></div></section>
+    <section><h2>Kvóta subscription</h2><div id="quota" class="muted">bez dat — žádný běh zatím nenahlásil využití</div></section>
+    <section class="chart"><h2>Tokeny po dnech (14 dní)</h2><div id="chart"></div><div id="cost" class="muted"></div></section>
+    <section id="lessonsBox" hidden><h2>Lekce z reflexe</h2><div id="lessons"></div></section>
   </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
