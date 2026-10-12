@@ -330,6 +330,21 @@ def _add_task(ctx: Ctx, project: str, title: str, description: str = "", done: s
     return note[0]
 
 
+def _retry(ctx: Ctx, task_id: str, text: str = "") -> str:
+    extra = " ".join(text.split())
+
+    def change(body: str) -> str:
+        t = next((t for t in backlog.parse(body) if t.id == task_id), None)
+        if t is None:
+            raise ValueError(f"úkol {task_id} neexistuje")
+        if t.status not in "!?":
+            raise ValueError(f"úkol {task_id} už není selhaný")
+        body = backlog.set_status(body, task_id, " ")
+        return backlog.add_description(body, task_id, f"Doplnění: {extra}") if extra else body
+    edit_backlog(ctx.backlog_path, change)
+    return f"🔁 {task_id}: zpět ve frontě"
+
+
 def _task_cmd(ctx: Ctx, text: str) -> str:
     first, _, rest = text.partition("\n")
     parts = first.split(maxsplit=2)
@@ -580,6 +595,8 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
             reply = _add_task(ctx, str(data.get("project") or ""), str(data.get("title") or ""),
                               str(data.get("description") or ""), str(data.get("done") or ""),
                               int(data.get("priority") or 2))
+        elif action == "retry":
+            reply = _retry(ctx, str(data.get("task")), str(data.get("text") or ""))
         elif action in ("pause", "resume"):
             reply = _command(ctx, action)
         else:

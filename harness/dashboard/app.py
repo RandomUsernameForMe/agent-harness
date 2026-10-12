@@ -193,10 +193,12 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
             cleanups = dict(zip(cfg.projects, pool.map(cleanup_of, paths, [last.get(n) for n in cfg.projects])))
         pulls = {name: with_conflicts(cfg.projects[name].path, pulls[name]) for name in cfg.projects}
         projects = [{"name": name, "prs": pulls[name], "cleanup": cleanups[name],
-                     "counts": {s: sum(t.project == name and t.status == s for t in tasks) for s in " ~x?-"}}
+                     "counts": {s: sum(t.project == name and t.status == s for t in tasks) for s in " ~x?-!"}}
                     for name in cfg.projects]
         proposals = [asdict(t) for t in tasks if t.status == "~"]
-        return {"projects": projects, "proposals": proposals, "serve": control and serve.snapshot(control),
+        return {"projects": projects, "proposals": proposals,
+                "failed": [asdict(t) for t in tasks if t.status == "!"],
+                "unclear": [asdict(t) for t in tasks if t.status == "?"], "serve": control and serve.snapshot(control),
                 "boot": boot, "limits": {"max_tasks": cfg.max_tasks_per_run, "max_parallel": cfg.max_parallel}}
 
     @app.post("/control/{action}")

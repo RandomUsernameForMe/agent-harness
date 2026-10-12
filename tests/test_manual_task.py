@@ -56,3 +56,34 @@ def test_act_add_unknown_project(tmp_path):
     env = Env(tmp_path, "happy-path", window=None)
     with pytest.raises(ValueError):
         serve.act(env.ctx, "add", {"project": "neznamy", "title": "x"})
+
+
+def _retry_env(tmp_path, status="!"):
+    env = Env(tmp_path, "happy-path", window=None)
+    env.sim.backlog_path.write_bytes(
+        f"## p\n- [{status}] P2 a-1 Titulek — verify failed\n  popis\n".encode())
+    return env
+
+
+def test_act_retry_requeues_with_supplement(tmp_path):
+    env = _retry_env(tmp_path)
+    serve.act(env.ctx, "retry", {"task": "a-1", "text": "použij vitest"})
+    text = env.sim.backlog_path.read_bytes().decode("utf-8")
+    assert "- [ ] P2 a-1 Titulek\n" in text
+    assert _tasks(env)[0].description == "popis\nDoplnění: použij vitest"
+
+
+def test_act_retry_without_text_keeps_description(tmp_path):
+    env = _retry_env(tmp_path, "?")
+    serve.act(env.ctx, "retry", {"task": "a-1"})
+    [t] = _tasks(env)
+    assert t.status == " " and t.description == "popis"
+
+
+@pytest.mark.parametrize("task,status", [("zzz", "!"), ("a-1", "x")])
+def test_act_retry_rejects_unknown_or_not_failed(tmp_path, task, status):
+    env = _retry_env(tmp_path, status)
+    before = env.sim.backlog_path.read_bytes()
+    with pytest.raises(ValueError):
+        serve.act(env.ctx, "retry", {"task": task})
+    assert env.sim.backlog_path.read_bytes() == before

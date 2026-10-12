@@ -413,9 +413,17 @@ function cleanupInfo(c) {
     🧹 <b>${days}</b> ${days === 1 ? "den" : days >= 2 && days <= 4 ? "dny" : "dní"} · ${prs} od revize</span>`;
 }
 
-function renderProjects(projects, proposals) {
+function stuckList(tasks) {
+  if (!tasks.length) return "";
+  return `<h4>Selhalo / nejasné</h4><ul>${tasks.map(t => `<li class="prop">
+      <details><summary title="${esc(t.title)}"><span class="muted">${t.status === "!" ? "selhalo" : "nejasné"}</span> ${esc(t.title)}</summary>
+        ${t.note ? `<p>${esc(t.note)}</p>` : ""}${t.description ? `<p>${esc(t.description)}</p>` : ""}</details>
+      <button data-task="${esc(t.id)}" data-do="retry" ${serveOn ? "" : "disabled"}>Zkusit znovu</button></li>`).join("")}</ul>`;
+}
+
+function renderProjects(projects, proposals, stuck) {
   agentResolving = projects.some(p => (p.prs || []).some(pr => pr.conflict && pr.conflict.state === "resolving"));
-  const key = JSON.stringify([projects, proposals, serveOn]);
+  const key = JSON.stringify([projects, proposals, stuck, serveOn]);
   if (key === projectsKey) return;  // keep opened descriptions open between refreshes
   projectsKey = key;
   $("projects").innerHTML = projects.map(p => {
@@ -430,9 +438,9 @@ function renderProjects(projects, proposals) {
       : `<span class="muted">žádné otevřené PR</span>`;
     return `<section><h3>${esc(p.name)}</h3>
       <div class="counts"><span><b>${c[" "]}</b> ve frontě</span><span><b>${c["~"]}</b> návrhů</span>
-        <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}
+        <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}${c["!"] ? `<span style="color:var(--warn)"><b>${c["!"]}</b> selhalo</span>` : ""}
         ${cleanupInfo(p.cleanup)}</div>
-      ${prs}${proposalList(proposals.filter(t => t.project === p.name))}
+      ${prs}${stuckList(stuck.filter(t => t.project === p.name))}${proposalList(proposals.filter(t => t.project === p.name))}
       <details><summary>+ úkol</summary>
         <form data-add="${esc(p.name)}" class="row" style="flex-wrap:wrap">
           <input type="text" name="title" required placeholder="titulek" aria-label="Titulek úkolu">
@@ -450,6 +458,17 @@ function renderProjects(projects, proposals) {
   $("projects").querySelectorAll("[data-conflict]").forEach(b => b.onclick = () => settleConflict(b));
   $("projects").querySelectorAll("[data-do=approve]").forEach(b => b.onclick = () => act("approve", {task: b.dataset.task}));
   $("projects").querySelectorAll("[data-do=reject]").forEach(b => b.onclick = () => askReason(b));
+  $("projects").querySelectorAll("[data-do=retry]").forEach(b => b.onclick = () => askRetry(b));
+}
+
+function askRetry(button) {
+  const li = button.closest("li");
+  li.innerHTML = `<form class="row" style="flex:1"><input type="text" aria-label="Doplnění pro další pokus (nepovinné)"
+      placeholder="doplnění (nepovinné)"><button class="primary">Zkusit znovu</button><button type="button">Zpět</button></form>`;
+  const input = li.querySelector("input");
+  input.focus();
+  li.querySelector("form").onsubmit = e => { e.preventDefault(); act("retry", {task: button.dataset.task, text: input.value}); };
+  li.querySelector("button[type=button]").onclick = () => { projectsKey = ""; refresh(); };
 }
 
 function askReason(button) {
@@ -536,7 +555,7 @@ async function refresh() {
     renderLimits(o.limits);
     renderRunSub(o.projects);
     refreshFlow(o.serve && o.serve.run);
-    renderProjects(o.projects, o.proposals);
+    renderProjects(o.projects, o.proposals, [...o.failed, ...o.unclear]);
     renderLessons(o.serve ? o.serve.lessons : []);
   } catch (e) { $("status").innerHTML = `<span style="color:var(--bad)">dashboard nedostupný</span>`; }
 }

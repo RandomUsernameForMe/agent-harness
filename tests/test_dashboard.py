@@ -358,3 +358,15 @@ def test_usage_prefers_live_quota_and_falls_back_to_sdk_events(tmp_path):
     assert (live["rate_limit"], live["seven_day"]) == (five, week)
     dead = TestClient(create_app(tmp_path, live_quota=lambda: None)).get("/usage").json()
     assert dead["rate_limit"]["status"] == "allowed" and dead["seven_day"] is None
+
+
+def test_overview_lists_failed_and_unclear_tasks(tmp_path):
+    shutil.copytree(ROOT / "scenarios", tmp_path / "scenarios")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "projects.yaml").write_text("projects:\n  alpha: {path: a, base: main, verify: [x]}\n", encoding="utf-8")
+    (tmp_path / "BACKLOG.md").write_text(
+        "## alpha\n- [!] P2 a-1 Titulek — verify failed\n- [?] P2 a-2 Nejasné — otázka\n", encoding="utf-8")
+    body = TestClient(create_app(tmp_path, prs=lambda p: [])).get("/overview").json()
+    assert [(t["id"], t["note"]) for t in body["failed"]] == [("a-1", "verify failed")]
+    assert [(t["id"], t["note"]) for t in body["unclear"]] == [("a-2", "otázka")]
+    assert body["projects"][0]["counts"]["!"] == 1
