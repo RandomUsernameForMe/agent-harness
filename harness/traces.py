@@ -250,6 +250,14 @@ def _union_changelog(wt: Path) -> None:
     _must(_git(["add", CHANGELOG], wt))
 
 
+class ContentConflict(RuntimeError):
+    """A rebase hit a conflict outside CHANGELOG.md: an agent or a fresh implementation has to settle it."""
+
+    def __init__(self, files: list[str]):
+        super().__init__(f"konflikt mimo {CHANGELOG}: {', '.join(files)}")
+        self.files = files
+
+
 def _rebase_keeping_changelogs(wt: Path, onto: str) -> None:
     out = _git(["rebase", onto], wt)
     while out.returncode != 0:
@@ -257,7 +265,9 @@ def _rebase_keeping_changelogs(wt: Path, onto: str) -> None:
         if conflicts != [CHANGELOG]:
             _git(["rebase", "--abort"], wt)
             others = [c for c in conflicts if c != CHANGELOG]
-            raise RuntimeError(f"konflikt mimo {CHANGELOG}: {', '.join(others) or out.stderr.strip()}")
+            if not others:
+                raise RuntimeError(f"rebase selhal: {out.stderr.strip()}")
+            raise ContentConflict(others)
         _union_changelog(wt)
         out = _git(["-c", "core.editor=true", "rebase", "--continue"], wt)
 
@@ -278,6 +288,13 @@ def resolve_changelog_conflict(repo_dir, branch: str, base: str) -> None:
         _must(_git(["push", "-q", f"--force-with-lease={branch}:origin/{branch}", "origin", f"HEAD:{branch}"], wt))
     finally:
         _git(["worktree", "remove", "--force", str(wt)], repo_dir)
+
+
+def requeue_pr(repo_dir, number: int, branch: str) -> None:
+    """Close a harness PR that conflicts with main and drop its branch, so the task can be implemented anew."""
+    _must(_gh(["pr", "close", str(number), "--comment",
+               "Konflikt s main mimo CHANGELOG: úkol se znovu implementuje nad aktuálním main."], repo_dir))
+    _drop_branch(repo_dir, branch)
 
 
 def _wait_mergeable(repo_dir, number: int) -> None:

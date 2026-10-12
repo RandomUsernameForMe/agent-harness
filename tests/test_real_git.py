@@ -154,3 +154,52 @@ def test_merge_pr_leaves_other_conflicts_alone(tmp_path, monkeypatch):
     assert calls == [["pr", "view"]]
     assert git(["ls-remote", "origin", "harness/t-1"], repo) == before
     assert len(git(["worktree", "list"], repo).splitlines()) == 1
+
+
+def _resolver(tmp_path, monkeypatch, write: str | None, verify: str = "true"):
+    """Content conflict in a.txt; the fake agent writes `write` into a.txt (None = leaves the markers)."""
+    from harness.nodes import real
+    from harness.sdk import WorkerResult
+    repo = _changelog_conflict(tmp_path, other="a.txt")
+    prompts = []
+
+    def agent(prompt, *, cwd, **kw):
+        prompts.append(prompt)
+        if write is not None:
+            (Path(cwd) / "a.txt").write_text(write)
+        return WorkerResult("ok", {}, None, None)
+    monkeypatch.setattr(real, "run_agent", agent)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    p = Project("demo", repo, "main", (), (verify,), (), 3, 800)
+    return repo, p, prompts
+
+
+def test_agent_resolves_content_conflict_and_pushes(tmp_path, monkeypatch):
+    from harness.nodes.real import resolve_conflict_with_agent
+    repo, p, prompts = _resolver(tmp_path, monkeypatch, "main\nt-1\n")
+    assert "a.txt" in resolve_conflict_with_agent(p, "harness/t-1", "subscription")
+    assert len(prompts) == 1 and "a.txt" in prompts[0] and "CHANGELOG.md" not in prompts[0]
+    git(["fetch", "-q", "origin"], repo)
+    assert git(["show", "origin/harness/t-1:a.txt"], repo) == "main\nt-1"
+    assert git(["show", "origin/harness/t-1:CHANGELOG.md"], repo).splitlines() == ["## old", "## t-1", "## other PR"]
+    assert git(["show", "origin/harness/t-1:b.txt"], repo) == "b"
+    git(["merge-base", "--is-ancestor", "origin/main", "origin/harness/t-1"], repo)  # raises if main is not merged in
+    assert len(git(["worktree", "list"], repo).splitlines()) == 1
+
+
+def test_agent_leaving_markers_or_failing_verify_pushes_nothing(tmp_path, monkeypatch):
+    import pytest
+
+    from harness.nodes.real import resolve_conflict_with_agent
+    repo, p, _ = _resolver(tmp_path / "markers", monkeypatch, None)
+    before = git(["ls-remote", "origin", "harness/t-1"], repo)
+    with pytest.raises(RuntimeError, match="a.txt"):
+        resolve_conflict_with_agent(p, "harness/t-1", "subscription")
+    assert git(["ls-remote", "origin", "harness/t-1"], repo) == before
+    assert len(git(["worktree", "list"], repo).splitlines()) == 1
+
+    repo, p, _ = _resolver(tmp_path / "verify", monkeypatch, "x\n", verify="exit 1")
+    before = git(["ls-remote", "origin", "harness/t-1"], repo)
+    with pytest.raises(RuntimeError, match="exit 1"):
+        resolve_conflict_with_agent(p, "harness/t-1", "subscription")
+    assert git(["ls-remote", "origin", "harness/t-1"], repo) == before

@@ -1,11 +1,12 @@
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Callable
 
-from .. import lessons, supervisor
+from .. import lessons, supervisor, traces
 from ..backlog import Task
 from ..guard import check_diff, new_failures
 from ..priority import captures_about
@@ -125,6 +126,46 @@ def _fresh_discover_worktree(p: Project) -> Path:
     git(["fetch", "-q", "origin", p.base], p.path)
     git(["reset", "-q", "--hard", f"origin/{p.base}"], wt)
     return wt
+
+
+MARKER_LINE = re.compile(r"^(<{7}|>{7})( |$)", re.M)
+
+
+def _merge_base_in(wt: Path, base: str) -> list[str]:
+    """Merge origin/base into the checked-out branch; CHANGELOG.md keeps both entries. Returns the files still in conflict."""
+    if traces._git(["merge", "-q", "--no-edit", f"origin/{base}"], wt).returncode == 0:
+        return []
+    conflicts = traces._git(["diff", "--name-only", "--diff-filter=U"], wt).stdout.split()
+    if traces.CHANGELOG in conflicts:
+        traces._union_changelog(wt)
+    return [c for c in conflicts if c != traces.CHANGELOG]
+
+
+def resolve_conflict_with_agent(p: Project, branch: str, billing: str) -> str:
+    """Merge origin/base into a conflicting PR branch in a throwaway worktree, let an agent settle the files beyond
+    CHANGELOG.md and push only when setup + verify pass. RuntimeError says why nothing was pushed."""
+    if err := check_billing(billing, os.environ):
+        raise RuntimeError(err)
+    git(["fetch", "-q", "origin", p.base, branch], p.path)
+    wt = Path(tempfile.mkdtemp(prefix="harness-conflict-"))
+    git(["worktree", "add", "-q", "--detach", str(wt), f"origin/{branch}"], p.path)
+    try:
+        files = _merge_base_in(wt, p.base)
+        if files:
+            run_agent(render_prompt("resolve_conflict.md", base=p.base, files="\n".join(files)), cwd=wt,
+                      model="sonnet", tools=WRITE_TOOLS, disallowed=NO_PUBLISH, max_turns=60)
+            if left := [f for f in files if MARKER_LINE.search((wt / f).read_text(encoding="utf-8", errors="replace"))]:
+                raise RuntimeError(f"agent nechal konfliktní značky v: {', '.join(left)}")
+        for cmd in (*p.setup, *p.verify):
+            ok, out = sh(cmd, wt)
+            if not ok:
+                raise RuntimeError(f"`{cmd}` po vyřešení konfliktu selhal:\n{out[-1500:]}")
+        git(["add", "-A"], wt)
+        git(["commit", "-q", "--no-edit"], wt)
+        git(["push", "-q", "origin", f"HEAD:{branch}"], wt)
+        return f"Konflikt vyřešen ({', '.join(files) or traces.CHANGELOG}), verify prošlo, změny pushnuté."
+    finally:
+        traces._git(["worktree", "remove", "--force", str(wt)], p.path)
 
 
 def real_explore(cfg: Config) -> Callable[[str, list[Task], str], tuple[str, dict]]:

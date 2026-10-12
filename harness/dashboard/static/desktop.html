@@ -50,6 +50,10 @@
   li.prop button { padding:2px 8px; }
   li.pr { display:flex; gap:8px; align-items:baseline; font-size:14px; min-width:0; }
   li.pr a { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1; }
+  li.conflict { font-size:13px; margin:2px 0 8px; padding:4px 8px; border-left:3px solid var(--bad); }
+  li.conflict pre { white-space:pre-wrap; max-height:8em; overflow:auto; font-size:12px; margin:4px 0; }
+  li.conflict .row { margin-top:4px; }
+  li.conflict button { padding:2px 8px; font-size:13px; }
   .tag { font-size:11px; padding:1px 7px; border-radius:99px; border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
   .tag.draft { border-color:var(--warn); color:var(--warn); }
   .item { border-top:1px solid var(--line); padding:10px 0; display:grid; gap:6px; }
@@ -223,6 +227,36 @@ async function mergePr(button) {
   refresh();
 }
 
+function conflictBox(project, pr) {
+  const c = pr.conflict;
+  if (!c || c.state === "kept") return "";
+  const files = `<b>Konflikt</b> v <span title="${esc(c.files.join("\n"))}">${c.files.map(f => esc(f.split("/").pop())).join(", ")}</span>`;
+  if (c.state === "resolving") return `<li class="conflict">${files} · <span class="muted">🤖 agent řeší konflikt a pouští testy…</span></li>`;
+  const data = `data-project="${esc(project)}" data-number="${pr.number}"`;
+  return `<li class="conflict">${files}${c.state === "failed" ? ` · agent neuspěl:<pre>${esc(c.error)}</pre>` : ""}
+    <div class="row"><button class="primary" data-conflict="agent" ${data}
+      title="Merge main do větve, agent vyřeší konflikty, push jen když projde verify">Vyřešit agentem</button>
+    <button data-conflict="reimplement" ${data} title="Zavře PR, smaže větev a vrátí úkol do fronty">Přeimplementovat</button>
+    <button data-conflict="keep" ${data} title="Skrýt; PR zůstane s konfliktem">Nechat</button></div></li>`;
+}
+
+async function settleConflict(button) {
+  const action = button.dataset.conflict;
+  if (action === "reimplement" && button.dataset.armed !== "1") {  // closes the PR: two clicks, as for Merge
+    button.dataset.armed = "1";
+    button.textContent = "Opravdu?";
+    setTimeout(() => { button.dataset.armed = ""; button.textContent = "Přeimplementovat"; }, 4000);
+    return;
+  }
+  button.disabled = true;
+  const r = await fetch("/prs/conflict", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({project: button.dataset.project, number: +button.dataset.number, action})});
+  const data = await r.json().catch(() => ({}));
+  toast(r.ok ? data.message : (data.detail || `chyba ${r.status}`));
+  projectsKey = "";
+  refresh();
+}
+
 function ciTag(pr) {
   const label = {ok: "CI ✓", fail: "CI ✗", pending: "CI …"}[pr.ci];
   const conflict = pr.mergeable === "CONFLICTING" ? `<span class="tag fail">konflikt</span>` : "";
@@ -244,6 +278,7 @@ const NODES = [["preflight", "kontrola"], ["make_worktree", "worktree"], ["plan"
   ["setup", "setup"], ["implement", "implementace"], ["verify", "testy"], ["replan", "replan"], ["open_pr", "PR"], ["report", "zápis"]];
 const OUTCOME = {pr_opened: "PR otevřen", failed: "selhalo", needs_clarification: "nejasné"};
 let runActive = false;
+let agentResolving = false;
 
 function renderStatus(s) {
   serveOn = !!s;
@@ -379,6 +414,7 @@ function cleanupInfo(c) {
 }
 
 function renderProjects(projects, proposals) {
+  agentResolving = projects.some(p => (p.prs || []).some(pr => pr.conflict && pr.conflict.state === "resolving"));
   const key = JSON.stringify([projects, proposals, serveOn]);
   if (key === projectsKey) return;  // keep opened descriptions open between refreshes
   projectsKey = key;
@@ -389,7 +425,8 @@ function renderProjects(projects, proposals) {
           <a href="${esc(pr.url)}" target="_blank" rel="noopener" title="${esc(pr.title)}">${esc(pr.title.replace(/^\[harness\]\s*/, ""))}</a>
           ${pr.isDraft ? `<span class="tag draft">draft</span>` : ""}${ciTag(pr)}<span class="muted">${age(pr.createdAt)}</span>
           <button data-merge data-project="${esc(p.name)}" data-number="${pr.number}"
-            title="Squash merge (draft se nejdřív označí ready), pak smaže větev a worktree">Merge</button></li>`).join("")}</ul>`
+            title="Squash merge (draft se nejdřív označí ready), pak smaže větev a worktree">Merge</button></li>
+          ${conflictBox(p.name, pr)}`).join("")}</ul>`
       : `<span class="muted">žádné otevřené PR</span>`;
     return `<section><h3>${esc(p.name)}</h3>
       <div class="counts"><span><b>${c[" "]}</b> ve frontě</span><span><b>${c["~"]}</b> návrhů</span>
@@ -410,6 +447,7 @@ function renderProjects(projects, proposals) {
     act("add", {project: f.dataset.add, title: v.title.value, description: v.description.value, done: v.done.value, priority: +v.priority.value});
   });
   $("projects").querySelectorAll("[data-merge]").forEach(b => b.onclick = () => mergePr(b));
+  $("projects").querySelectorAll("[data-conflict]").forEach(b => b.onclick = () => settleConflict(b));
   $("projects").querySelectorAll("[data-do=approve]").forEach(b => b.onclick = () => act("approve", {task: b.dataset.task}));
   $("projects").querySelectorAll("[data-do=reject]").forEach(b => b.onclick = () => askReason(b));
 }
@@ -513,7 +551,7 @@ document.querySelectorAll("button.action").forEach(b => {
 });
 refresh(); refreshUsage();
 let ticks = 0;
-setInterval(() => { if (runActive || ++ticks % 5 === 0) refresh(); }, 3000);  // live while a run is active
+setInterval(() => { if (runActive || agentResolving || ++ticks % 5 === 0) refresh(); }, 3000);  // live while a run or conflict agent is active
 setInterval(refreshUsage, 60000);
 </script>
 </body>

@@ -17,6 +17,8 @@ from pydantic import BaseModel
 
 from .. import backlog, events, quota, serve, traces
 from ..graph import graph_mermaid, worker_mermaid
+from ..nodes.common import edit_backlog
+from ..nodes.real import resolve_conflict_with_agent
 from ..projects import load_config
 from ..runner import execute, pending, questions
 from ..simulate import Simulation, prepare
@@ -34,6 +36,10 @@ class AnswerRequest(BaseModel):
 class MergeRequest(BaseModel):
     project: str
     number: int
+
+
+class ConflictRequest(MergeRequest):
+    action: str  # agent | reimplement | keep
 
 
 class SimulateRequest(BaseModel):
@@ -83,7 +89,8 @@ def local_origin(request: Request) -> bool:
 
 def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs, merge=traces.merge_pr,
                live_quota=quota.fetch, resolve=traces.resolve_changelog_conflict,
-               merged=traces.merged_since) -> FastAPI:
+               merged=traces.merged_since, requeue=traces.requeue_pr,
+               fix=resolve_conflict_with_agent) -> FastAPI:
     from ..cli import open_db
 
     app = FastAPI(title="harness")
@@ -98,6 +105,7 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
     pr_cache: dict[Path, tuple[float, list | None]] = {}
     tried: set[tuple] = set()  # (repo, PR, head commit): a failed rebase is not retried until the branch moves
     resolve_lock = threading.Lock()
+    conflicts: dict[tuple, dict] = {}  # (repo, PR) → files a rebase could not settle and what the owner chose
 
     def cached_prs(path: Path) -> list | None:
         hit = pr_cache.get(path)
@@ -130,10 +138,36 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         with resolve_lock:  # one rebase per serve at a time: they share the repo's fetch and worktree list
             try:
                 resolve(path, pr["headRefName"], pr["baseRefName"])
+            except traces.ContentConflict as e:
+                conflicts[(path, pr["number"])] = {"files": e.files, "state": "open"}
+                return
             except (RuntimeError, OSError) as e:
                 print(f"PR #{pr['number']} in {path}: {e}", file=sys.stderr)
                 return
         pr_cache.pop(path, None)
+
+    def fix_one(project, pr: dict, billing: str) -> None:
+        key = (project.path, pr["number"])
+        try:
+            fix(project, pr["headRefName"], billing)
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
+            detail = getattr(e, "stderr", None) or str(e)
+            conflicts[key] |= {"state": "failed", "error": detail[-2000:]}
+            return
+        conflicts.pop(key, None)
+        pr_cache.pop(project.path, None)
+
+    def reimplement(path: Path, pr: dict) -> str:
+        """Close the PR and put its task back to [ ] for a fresh run on the current base."""
+        task_id = pr["headRefName"].removeprefix("harness/")
+        bl = home / "BACKLOG.md"
+        if not bl.exists() or task_id not in {t.id for t in backlog.parse(bl.read_bytes().decode("utf-8"))}:
+            raise ValueError(f"úkol {task_id} není v BACKLOG.md")
+        requeue(path, pr["number"], pr["headRefName"])
+        edit_backlog(bl, lambda text: backlog.set_status(text, task_id, " "))
+        conflicts.pop((path, pr["number"]), None)
+        pr_cache.pop(path, None)
+        return f"PR #{pr['number']} zavřen, úkol {task_id} je zpět ve frontě."
 
     def run_sim(sim: Simulation, inputs) -> None:
         with sim.lock:
@@ -157,6 +191,7 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         with ThreadPoolExecutor() as pool:
             pulls = dict(zip(cfg.projects, pool.map(cached_prs, paths)))
             cleanups = dict(zip(cfg.projects, pool.map(cleanup_of, paths, [last.get(n) for n in cfg.projects])))
+        pulls = {name: with_conflicts(cfg.projects[name].path, pulls[name]) for name in cfg.projects}
         projects = [{"name": name, "prs": pulls[name], "cleanup": cleanups[name],
                      "counts": {s: sum(t.project == name and t.status == s for t in tasks) for s in " ~x?-"}}
                     for name in cfg.projects]
@@ -176,6 +211,43 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
             raise HTTPException(404, f"unknown action {action!r}") from None
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
+
+    def with_conflicts(path: Path, pulls: list | None) -> list | None:
+        if pulls is None:
+            return None
+        return [pr | {"conflict": conflicts.get((path, pr["number"]))} if pr.get("mergeable") == "CONFLICTING" else pr
+                for pr in pulls]
+
+    @app.post("/prs/conflict")
+    def settle_conflict(req: ConflictRequest, request: Request):
+        """The owner's answer to a conflict the background rebase could not settle."""
+        if not local_origin(request):
+            raise HTTPException(403, "cross-origin request")
+        cfg = load_config(home / "projects.yaml")
+        project = cfg.projects.get(req.project)
+        if project is None:
+            raise HTTPException(404, f"unknown project {req.project!r}")
+        entry = conflicts.get((project.path, req.number))
+        pr = next((p for p in cached_prs(project.path) or [] if p["number"] == req.number), None)
+        if entry is None or pr is None:
+            raise HTTPException(404, f"PR #{req.number} nemá nevyřešený konflikt")
+        if entry["state"] == "resolving":
+            raise HTTPException(409, "agent už konflikt řeší")
+        if req.action == "keep":
+            entry["state"] = "kept"
+            return {"message": f"PR #{req.number} nechán s konfliktem."}
+        if req.action == "agent":
+            entry |= {"state": "resolving", "error": ""}
+            threading.Thread(target=fix_one, args=(project, pr, cfg.billing), daemon=True).start()
+            return {"message": f"Agent řeší konflikt v PR #{req.number}…"}
+        if req.action == "reimplement":
+            try:
+                return {"message": reimplement(project.path, pr)}
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from None
+            except (RuntimeError, OSError) as e:
+                raise HTTPException(409, str(e)) from None
+        raise HTTPException(422, f"unknown action {req.action!r}")
 
     @app.post("/prs/merge")
     def merge_pr(req: MergeRequest, request: Request):
