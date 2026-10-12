@@ -78,3 +78,4 @@
 ## [2026-10-12] - Dashboard: úprava návrhu před schválením (akce edit, ✏️)
 ## [2026-10-12] - traces.py: veřejné settle_changelog/git_run/union_changelog, real.py už nesahá na privátní jména traces
 ## [2026-10-12] - Dashboard: kontrola origin jako závislost require_local_origin a helper _project
+## [2026-10-12] - Discover: scout dostane seznam nedávných PR a commitů, aby nenavrhoval hotové úkoly
