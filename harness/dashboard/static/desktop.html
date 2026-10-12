@@ -103,24 +103,61 @@
   .wrow .title { flex:1 1 100%; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .node { border:1px solid var(--line); border-radius:99px; padding:1px 8px; color:var(--muted); }
   .node.done, .node.active, .node.wait, .node.error { color:var(--text); }
+  #subtitle { display:none; }
+  button[aria-pressed=true] { border-color:var(--accent); }
+
+  /* SAMM: the dairy parody skin — same data, only restyled */
+  body.samm { --bg:#fffdf5; --panel:#fff; --text:#2b1d0e; --muted:#7a6650; --line:#2b1d0e; --accent:#ff8fb1;
+              --ok:#3f9b3f; --bad:#c0392b; --warn:#e6a100; --on-accent:#2b1d0e;
+              font-family:"Comic Sans MS", "Chalkboard SE", cursive;
+              background:linear-gradient(#bfe6ff 0 55%, #8ed16f 55% 100%) fixed; }
+  body.samm section { border-width:3px; border-radius:28px 28px 18px 18px; backdrop-filter:none;
+    background:radial-gradient(circle at calc(100% + 6px) -6px, #1a1a1a 0 26px, transparent 27px),
+               radial-gradient(ellipse 22px 14px at calc(100% - 4px) calc(100% + 2px), #1a1a1a 99%, transparent), #fff;
+    box-shadow:4px 5px 0 #2b1d0e; }
+  body.samm h1 { font-size:34px; color:#fff; -webkit-text-stroke:1.5px #2b1d0e; text-shadow:3px 3px 0 var(--accent); }
+  body.samm #subtitle { display:block; flex-basis:100%; margin-top:-10px; font-style:italic; color:#2b1d0e; }
+  body.samm h2 { color:#2b1d0e; }
+  body.samm h2::before { content:"🐄 "; }
+  body.samm button { background:#fff; border-width:2px; border-radius:999px; color:var(--text); }
+  body.samm button.primary { background:var(--accent); }
+  body.samm button.action { border-radius:40px 40px 20px 20px; box-shadow:3px 4px 0 #2b1d0e; }
+  body.samm .dot { width:auto; height:auto; background:none; font-size:14px; }
+  body.samm .dot::before { content:"🐄"; }
+  body.samm .dot.crashed::before { content:"🥩"; }
+  body.samm .dot.done::before { content:"🥛"; }
+  body.samm .meter { height:16px; border:2px solid #2b1d0e; background:#fff; }
+  body.samm .meter > div { background:repeating-linear-gradient(90deg, #fff 0 10px, #f3f0e6 10px 20px); }
+  body.samm .chart rect { fill:#fff; stroke:#2b1d0e; stroke-width:.6; opacity:1; }
+  body.samm .stage, body.samm .node, body.samm .tag { border-width:2px; }
+  body.samm input:is([type=number], [type=text]), body.samm :is(select, textarea) { background:#fff; color:var(--text); }
+  body.samm #toast::before { content:"Bůůů! "; }
+
+  /* blur: hide what PRs and tasks say, keep counts, states and buttons readable */
+  body.blurred :is(li.pr a, li.prop summary, li.prop > span, details p, #plan .item > label > span,
+    #questions .item > div, .wrow .title, li.conflict pre, li.conflict span[title]) { filter:blur(5px); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Harness</h1>
+    <h1 data-samm="SAMM">Harness</h1>
     <div class="status" id="status"><span class="muted">načítám…</span></div>
+    <span class="spacer"></span>
+    <button class="small" id="sammToggle" aria-pressed="false" title="Parodický mlékárenský vzhled">🐄 Mlékárna</button>
+    <button class="small" id="blurredToggle" aria-pressed="false" title="Rozmazat obsah PR a úkolů">🙈 Rozmazat</button>
+    <div id="subtitle">Subscription Automatic Milking Machine — dojíme tokeny 24/7</div>
   </header>
 
   <div class="col">
     <section id="flow">
       <div class="actions">
         <button class="action primary" data-act="run" data-path="pick_tasks worker reflect">
-          <b>▶ Zpracovat frontu</b><span id="runSub">Implementuje úkoly [ ] z BACKLOGu a otevře PR</span></button>
+          <b data-samm="🥛 Podojit frontu">▶ Zpracovat frontu</b><span id="runSub">Implementuje úkoly [ ] z BACKLOGu a otevře PR</span></button>
         <button class="action" data-act="go" data-path="discover prioritize approve pick_tasks worker reflect">
-          <b>🔍 Najít a naplánovat</b><span>Opus projde projekty, navrhne úkoly; plán schválíš tady, pak je zpracuje</span></button>
+          <b data-samm="🌾 Vyhnat na pastvu">🔍 Najít a naplánovat</b><span data-samm="Opus obejde louky, najde šťavnatou trávu; plán podojení schválíš tady">Opus projde projekty, navrhne úkoly; plán schválíš tady, pak je zpracuje</span></button>
         <button class="action" data-act="go" data-lenses="cleanup" data-path="discover prioritize approve pick_tasks worker reflect">
-          <b>🧹 Revize čistoty kódu</b><span>Opus projde celé repo, najde spaghetti a navrhne refaktory; plán schválíš tady</span></button>
+          <b data-samm="🧽 Vydrhnout dojírnu">🧹 Revize čistoty kódu</b><span data-samm="Opus vymete chlév, najde kravince ve spaghetti a navrhne úklid">Opus projde celé repo, najde spaghetti a navrhne refaktory; plán schválíš tady</span></button>
       </div>
       <div class="row" id="scope" style="margin-top:10px"></div>
       <div class="row" id="lenses" style="margin-top:6px; font-size:13px"><span class="muted">Hledat:</span>
@@ -133,15 +170,15 @@
       <div id="workers"></div>
       <div id="flowHint" class="muted"></div>
     </section>
-    <section id="planBox" class="attention" hidden><h2>Plán ke schválení</h2><div id="plan"></div></section>
-    <section id="questionBox" class="attention" hidden><h2>Dotazy k úkolům</h2><div id="questions"></div></section>
+    <section id="planBox" class="attention" hidden><h2 data-samm="Dojicí plán ke schválení">Plán ke schválení</h2><div id="plan"></div></section>
+    <section id="questionBox" class="attention" hidden><h2 data-samm="Kráva se ptá">Dotazy k úkolům</h2><div id="questions"></div></section>
     <div class="projects" id="projects"></div>
   </div>
 
   <div class="col">
-    <section><h2>Kvóta subscription</h2><div id="quota" class="muted">bez dat — žádný běh zatím nenahlásil využití</div></section>
-    <section class="chart"><h2>Tokeny po dnech (14 dní)</h2><div id="chart"></div><div id="cost" class="muted"></div></section>
-    <section id="lessonsBox" hidden><h2>Lekce z reflexe</h2><div id="lessons"></div></section>
+    <section><h2 data-samm="Stav vemene">Kvóta subscription</h2><div id="quota" class="muted">bez dat — žádný běh zatím nenahlásil využití</div></section>
+    <section class="chart"><h2 data-samm="Nadojeno po dnech (litry tokenů)">Tokeny po dnech (14 dní)</h2><div id="chart"></div><div id="cost" class="muted"></div></section>
+    <section id="lessonsBox" hidden><h2 data-samm="Moudra starého bači">Lekce z reflexe</h2><div id="lessons"></div></section>
   </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -542,6 +579,24 @@ async function refresh() {
 }
 async function refreshUsage() {
   try { renderUsage(await (await fetch("/usage")).json()); } catch (e) {}
+}
+
+function setMode(cls, on) {
+  // parody skin and blur are per-viewer looks: body class + localStorage, no server state
+  document.body.classList.toggle(cls, on);
+  $(cls + "Toggle").setAttribute("aria-pressed", on);
+  try { localStorage.setItem(cls, on ? "1" : ""); } catch (e) {}
+  if (cls === "samm") document.querySelectorAll("[data-samm]").forEach(el => {
+    el.dataset.orig ??= el.textContent;
+    el.textContent = on ? el.dataset.samm : el.dataset.orig;
+  });
+}
+
+for (const cls of ["samm", "blurred"]) {
+  let on = false;
+  try { on = localStorage.getItem(cls) === "1"; } catch (e) {}
+  setMode(cls, on);
+  $(cls + "Toggle").onclick = () => setMode(cls, !document.body.classList.contains(cls));
 }
 
 document.querySelectorAll("button.action").forEach(b => {
