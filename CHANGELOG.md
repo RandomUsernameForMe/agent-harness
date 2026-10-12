@@ -83,3 +83,4 @@
 ## [2026-10-12] - Desktop dashboard: přepínač „Mlékárna“ (parodický vzhled SAMM) a přepínač rozmazání obsahu PR a úkolů
 ## [2026-10-12] - SAMM: kreslené tlačítka a okna, pasoucí se kráva v pozadí, méně přejmenovaných textů
 ## [2026-10-12] - SAMM: stádo tří krav, které se toulají po celé louce
+## [2026-10-12] - SAMM: výraznější rysy krav a občasná idle animace s logem jejich firmy
