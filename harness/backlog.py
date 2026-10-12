@@ -1,5 +1,11 @@
 import re
+import threading
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, TypeVar
+
+T = TypeVar("T")
+LOCK = threading.Lock()  # serve, dashboard and graph nodes edit BACKLOG.md from different threads
 
 HEADER_RE = re.compile(r"^## (?P<project>\S+)\s*$")
 # id becomes a git branch name and CLI argument → restrict to safe characters
@@ -82,3 +88,19 @@ def add_tasks(text: str, project: str, lines: list[str]) -> str:
     while end > start + 1 and not rows[end - 1].strip():
         end -= 1
     return eol.join(rows[:end] + lines + rows[end:]) + eol
+
+
+def read(path: Path) -> str:
+    return path.read_bytes().decode("utf-8") if path.exists() else ""
+
+
+def edit_with(path: Path, fn: Callable[[str], tuple[str, T]]) -> T:
+    """Read-modify-write under the lock; fn returns (new text, result) and the result is passed on."""
+    with LOCK:
+        new, result = fn(read(path))
+        path.write_bytes(new.encode("utf-8"))
+        return result
+
+
+def edit(path: Path, fn: Callable[[str], str]) -> None:
+    edit_with(path, lambda text: (fn(text), None))

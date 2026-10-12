@@ -17,7 +17,6 @@ from pydantic import BaseModel
 
 from .. import backlog, events, quota, serve, traces
 from ..graph import graph_mermaid, worker_mermaid
-from ..nodes.common import edit_backlog
 from ..nodes.real import resolve_conflict_with_agent
 from ..projects import load_config
 from ..runner import execute, pending, questions
@@ -161,10 +160,10 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         """Close the PR and put its task back to [ ] for a fresh run on the current base."""
         task_id = pr["headRefName"].removeprefix("harness/")
         bl = home / "BACKLOG.md"
-        if not bl.exists() or task_id not in {t.id for t in backlog.parse(bl.read_bytes().decode("utf-8"))}:
+        if task_id not in {t.id for t in backlog.parse(backlog.read(bl))}:
             raise ValueError(f"úkol {task_id} není v BACKLOG.md")
         requeue(path, pr["number"], pr["headRefName"])
-        edit_backlog(bl, lambda text: backlog.set_status(text, task_id, " "))
+        backlog.edit(bl, lambda text: backlog.set_status(text, task_id, " "))
         conflicts.pop((path, pr["number"]), None)
         pr_cache.pop(path, None)
         return f"PR #{pr['number']} zavřen, úkol {task_id} je zpět ve frontě."
@@ -185,7 +184,7 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
     def overview():
         cfg = load_config(home / "projects.yaml")  # every request: new projects show up without a restart
         path = home / "BACKLOG.md"
-        tasks = backlog.parse(path.read_bytes().decode("utf-8")) if path.exists() else []
+        tasks = backlog.parse(backlog.read(path))
         last = events.last_cleanups(conn)
         paths = [p.path for p in cfg.projects.values()]
         with ThreadPoolExecutor() as pool:
@@ -303,9 +302,7 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
     @app.get("/backlog")
     def get_backlog(sim: str | None = None):
         path = sims[sim].backlog_path if sim in sims else home / "BACKLOG.md"
-        if not path.exists():
-            return []
-        return [asdict(t) for t in backlog.parse(path.read_bytes().decode("utf-8"))]
+        return [asdict(t) for t in backlog.parse(backlog.read(path))]
 
     @app.get("/runs/{run_id}/calls")
     def run_calls(run_id: str):
