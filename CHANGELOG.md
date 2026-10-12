@@ -73,3 +73,4 @@
 ## [2026-10-11] - Úkoly z discover s ACCEPT přeskočí plánovač (plán = popis scouta, plán až při replan); plan_model: sonnet
 ## [2026-10-12] - Desktop dashboard: sloupce scrollují vlastním scrollbarem (Lively nepředává kolečko)
 ## [2026-10-12] - Konflikt harness PR mimo CHANGELOG: dashboard nabídne Vyřešit agentem / Přeimplementovat / Nechat
+## [2026-10-12] - traces.py: jeden helper _gh_stdout místo čtyř kopií try/except kolem gh
