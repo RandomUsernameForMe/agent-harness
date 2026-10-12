@@ -133,20 +133,19 @@
   body.samm :is(label.chip, .stage, .node, .tag) { border:2px solid #2b1d0e; box-shadow:2px 2px 0 #2b1d0e; background:#fff; }
   body.samm .stage { border-radius:12px 18px 10px 16px; }
 
-  /* the cow grazes on the meadow behind the panels */
-  #cow { display:none; }
-  body.samm #cow { display:block; position:fixed; left:0; bottom:14px; width:240px; z-index:0; pointer-events:none;
-    animation:graze 46s linear infinite; }
+  /* the herd wanders the meadow behind the panels; JS (herd) moves each cow */
+  #herd { display:none; }
+  body.samm #herd { display:block; position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
   body.samm .wrap { position:relative; z-index:1; }
-  #cow svg { width:100%; display:block; animation:bob .5s ease-in-out infinite alternate; }
-  #cow .tail { transform-origin:36px 64px; animation:wag 1s ease-in-out infinite alternate; }
-  #cow .head { transform-origin:150px 66px; animation:nod 2.6s ease-in-out infinite; }
-  @keyframes graze { 0% { transform:translateX(-250px); } 48% { transform:translateX(100vw); }
-    50% { transform:translateX(100vw) scaleX(-1); } 98% { transform:translateX(-250px) scaleX(-1); } 100% { transform:translateX(-250px); } }
+  .cow { position:absolute; left:0; top:0; width:240px; transform-origin:50% 100%; }
+  .cow svg { width:100%; display:block; animation:bob .5s ease-in-out infinite alternate; }
+  .cow .tail { transform-origin:36px 64px; animation:wag 1s ease-in-out infinite alternate; }
+  .cow .head { transform-origin:150px 66px; animation:nod 2.6s ease-in-out infinite; }
+  .cow:nth-child(3) .head { animation-delay:-1s; } .cow:nth-child(4) .head { animation-delay:-1.8s; }
   @keyframes bob { to { transform:translateY(-4px); } }
   @keyframes wag { from { transform:rotate(-12deg); } to { transform:rotate(14deg); } }
   @keyframes nod { 0%, 70%, 100% { transform:rotate(0); } 80% { transform:rotate(9deg); } 90% { transform:rotate(-3deg); } }
-  @media (prefers-reduced-motion:reduce) { #cow, #cow * { animation:none !important; } }
+  @media (prefers-reduced-motion:reduce) { .cow, .cow * { animation:none !important; } }
   body.samm .dot { width:auto; height:auto; background:none; font-size:14px; }
   body.samm .dot::before { content:"🐄"; }
   body.samm .dot.crashed::before { content:"🥩"; }
@@ -163,30 +162,67 @@
 </style>
 </head>
 <body>
-<!-- wide-eyed, tousled-hair, grey-crewneck cow: a gentle nod to a certain AI CEO -->
-<div id="cow" aria-hidden="true"><svg viewBox="0 0 200 140" stroke="#2b1d0e" stroke-width="3" stroke-linejoin="round">
-  <path class="tail" d="M38 64 Q22 74 26 98" fill="none"/><circle class="tail" cx="26" cy="100" r="5" fill="#2b1d0e"/>
-  <g fill="#fff"><rect x="50" y="92" width="11" height="34" rx="4"/><rect x="68" y="94" width="11" height="32" rx="4"/>
-    <rect x="104" y="94" width="11" height="32" rx="4"/><rect x="121" y="92" width="11" height="34" rx="4"/></g>
-  <g fill="#2b1d0e" stroke="none"><rect x="50" y="120" width="11" height="7" rx="2"/><rect x="68" y="120" width="11" height="7" rx="2"/>
-    <rect x="104" y="120" width="11" height="7" rx="2"/><rect x="121" y="120" width="11" height="7" rx="2"/></g>
-  <ellipse cx="92" cy="74" rx="56" ry="32" fill="#fff"/>
-  <g fill="#1a1a1a" stroke="none"><ellipse cx="70" cy="62" rx="15" ry="10"/><ellipse cx="108" cy="88" rx="12" ry="7"/><ellipse cx="122" cy="60" rx="8" ry="6"/></g>
-  <ellipse cx="94" cy="104" rx="11" ry="6" fill="#ffb3c6"/>
-  <g class="head">
-    <path d="M136 72 Q146 56 160 64 Q156 80 140 82 Z" fill="#8d939c"/>
+<!-- the herd: one shared body and face, each cow gets its own hair, eyes, mouth and collar
+     (nods to three AI-era CEOs: tousled hair + grey crewneck, swept-back hair + black tee + smirk,
+     curls + round glasses + light blue shirt) -->
+<div id="herd" aria-hidden="true">
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="cowBody" viewBox="0 0 200 140">
+    <g fill="#fff"><rect x="50" y="92" width="11" height="34" rx="4"/><rect x="68" y="94" width="11" height="32" rx="4"/>
+      <rect x="104" y="94" width="11" height="32" rx="4"/><rect x="121" y="92" width="11" height="34" rx="4"/></g>
+    <g fill="#2b1d0e" stroke="none"><rect x="50" y="120" width="11" height="7" rx="2"/><rect x="68" y="120" width="11" height="7" rx="2"/>
+      <rect x="104" y="120" width="11" height="7" rx="2"/><rect x="121" y="120" width="11" height="7" rx="2"/></g>
+    <ellipse cx="92" cy="74" rx="56" ry="32" fill="#fff"/>
+    <g fill="#1a1a1a" stroke="none"><ellipse cx="70" cy="62" rx="15" ry="10"/><ellipse cx="108" cy="88" rx="12" ry="7"/><ellipse cx="122" cy="60" rx="8" ry="6"/></g>
+    <ellipse cx="94" cy="104" rx="11" ry="6" fill="#ffb3c6"/>
+  </symbol>
+  <symbol id="cowFace" viewBox="0 0 200 140">
     <ellipse cx="141" cy="36" rx="9" ry="5" fill="#fff" transform="rotate(-25 141 36)"/>
     <ellipse cx="185" cy="36" rx="9" ry="5" fill="#fff" transform="rotate(25 185 36)"/>
     <ellipse cx="163" cy="50" rx="23" ry="26" fill="#fff"/>
-    <path d="M141 38 Q142 22 154 24 Q158 14 168 20 Q176 14 182 24 Q188 30 185 40 Q176 30 166 33 Q156 28 141 38 Z" fill="#5a3f2c"/>
-    <path d="M148 39 Q153 36 158 38 M168 38 Q173 36 178 39" fill="none" stroke-width="2.2"/>
     <circle cx="154" cy="47" r="6.5" fill="#fff" stroke-width="2.2"/><circle cx="172" cy="47" r="6.5" fill="#fff" stroke-width="2.2"/>
-    <circle cx="154" cy="47" r="2.4" fill="#2b1d0e" stroke="none"/><circle cx="172" cy="47" r="2.4" fill="#2b1d0e" stroke="none"/>
     <ellipse cx="163" cy="66" rx="14" ry="9" fill="#ffc4d0"/>
     <ellipse cx="158" cy="64" rx="1.8" ry="2.6" fill="#2b1d0e" stroke="none"/><ellipse cx="168" cy="64" rx="1.8" ry="2.6" fill="#2b1d0e" stroke="none"/>
+  </symbol>
+</defs></svg>
+<div class="cow"><svg viewBox="0 0 200 140" stroke="#2b1d0e" stroke-width="3" stroke-linejoin="round">
+  <path class="tail" d="M38 64 Q22 74 26 98" fill="none"/><circle class="tail" cx="26" cy="100" r="5" fill="#2b1d0e"/>
+  <use href="#cowBody"/>
+  <g class="head">
+    <path d="M136 72 Q146 56 160 64 Q156 80 140 82 Z" fill="#8d939c"/>
+    <use href="#cowFace"/>
+    <path d="M141 38 Q142 22 154 24 Q158 14 168 20 Q176 14 182 24 Q188 30 185 40 Q176 30 166 33 Q156 28 141 38 Z" fill="#5a3f2c"/>
+    <path d="M148 39 Q153 36 158 38 M168 38 Q173 36 178 39" fill="none" stroke-width="2.2"/>
+    <circle cx="154" cy="47" r="2.4" fill="#2b1d0e" stroke="none"/><circle cx="172" cy="47" r="2.4" fill="#2b1d0e" stroke="none"/>
     <path d="M158 71 Q163 73 168 71" fill="none" stroke-width="1.8"/>
   </g>
 </svg></div>
+<div class="cow"><svg viewBox="0 0 200 140" stroke="#2b1d0e" stroke-width="3" stroke-linejoin="round">
+  <path class="tail" d="M38 64 Q22 74 26 98" fill="none"/><circle class="tail" cx="26" cy="100" r="5" fill="#2b1d0e"/>
+  <use href="#cowBody"/>
+  <g class="head">
+    <path d="M136 72 Q146 56 160 64 Q156 80 140 82 Z" fill="#1c1c1f"/>
+    <use href="#cowFace"/>
+    <path d="M142 36 Q144 18 163 18 Q182 18 184 36 Q178 26 163 27 Q150 27 142 36 Z" fill="#3b2a20"/>
+    <path d="M147 40 L158 39 M168 37 Q173 33 179 37" fill="none" stroke-width="2.4"/>
+    <circle cx="156" cy="48" r="2.6" fill="#2b1d0e" stroke="none"/><circle cx="174" cy="48" r="2.6" fill="#2b1d0e" stroke="none"/>
+    <path d="M155 71 Q162 73 171 67" fill="none" stroke-width="2"/>
+  </g>
+</svg></div>
+<div class="cow"><svg viewBox="0 0 200 140" stroke="#2b1d0e" stroke-width="3" stroke-linejoin="round">
+  <path class="tail" d="M38 64 Q22 74 26 98" fill="none"/><circle class="tail" cx="26" cy="100" r="5" fill="#2b1d0e"/>
+  <use href="#cowBody"/>
+  <g class="head">
+    <path d="M136 72 Q146 56 160 64 Q156 80 140 82 Z" fill="#a9cbea"/><path d="M140 70 L148 80 L152 68 Z" fill="#fff" stroke-width="2"/>
+    <use href="#cowFace"/>
+    <g fill="#2a1d14" stroke="none"><circle cx="143" cy="38" r="5"/><circle cx="146" cy="30" r="6"/><circle cx="153" cy="24" r="7"/>
+      <circle cx="162" cy="21" r="7"/><circle cx="171" cy="22" r="7"/><circle cx="179" cy="27" r="6"/><circle cx="184" cy="34" r="5"/></g>
+    <circle cx="154" cy="47" r="2.4" fill="#2b1d0e" stroke="none"/><circle cx="172" cy="47" r="2.4" fill="#2b1d0e" stroke="none"/>
+    <path d="M145 47 a9 9 0 1 0 18 0 a9 9 0 1 0 -18 0 M163 47 a9 9 0 1 0 18 0 a9 9 0 1 0 -18 0" fill="none" stroke-width="2"/>
+    <path d="M157 70 Q163 75 169 70" fill="none" stroke-width="1.8"/>
+  </g>
+</svg></div>
+</div>
 <div class="wrap">
   <header>
     <h1 data-samm="SAMM">Harness</h1>
@@ -671,6 +707,40 @@ for (const cls of ["samm", "blurred"]) {
   setMode(cls, on);
   $(cls + "Toggle").onclick = () => setMode(cls, !document.body.classList.contains(cls));
 }
+
+// each cow walks to a random spot on the meadow (lower 45 % of the screen), grazes a while, picks another;
+// depth: higher up = farther = smaller and behind
+function herd() {
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const spot = c => Object.assign(c, {tx: Math.random() * (innerWidth - 180), ty: Math.random(), wait: Math.random() * 4});
+  const cows = [...document.querySelectorAll(".cow")].map(el => {
+    const c = spot({el, dir: 1});  // start somewhere random, then head somewhere else
+    return spot(Object.assign(c, {x: c.tx, y: c.ty}));
+  });
+  let last = performance.now();
+  requestAnimationFrame(function step(now) {
+    const dt = Math.min(now - last, 100) / 1000;
+    last = now;
+    if (document.body.classList.contains("samm")) for (const c of cows) walk(c, dt, still, spot);
+    requestAnimationFrame(step);
+  });
+}
+
+function walk(c, dt, still, spot) {
+  const top = innerHeight * .55, depth = innerHeight * .45 - 40;
+  if (!still) {
+    if (c.wait > 0) c.wait -= dt;
+    else {
+      const dx = c.tx - c.x, dy = (c.ty - c.y) * depth, d = Math.hypot(dx, dy), v = 45 * dt;
+      if (d < v) spot(c);
+      else { c.x += dx / d * v; c.y += dy / d * v / depth; if (Math.abs(dx) > 2) c.dir = Math.sign(dx); }
+    }
+  }
+  const s = .5 + .5 * c.y, feet = top + 20 + c.y * depth;
+  c.el.style.zIndex = Math.round(c.y * 100);
+  c.el.style.transform = `translate(${c.x}px, ${feet - 168}px) scale(${c.dir * s}, ${s})`;
+}
+herd();
 
 document.querySelectorAll("button.action").forEach(b => {
   b.onclick = () => act(b.dataset.act, runBody(b));
