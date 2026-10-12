@@ -25,8 +25,10 @@ from .telegram import Buttons, TelegramError
 POLL_SECONDS = 20
 UNKNOWN_RESET_WAIT = 15 * 60  # rate limit without a reset time: don't hammer it every tick
 ACTIVE = ("running", "waiting", "paused", "approving")
+TASK_USAGE = "/task <projekt> <titulek> — přidat úkol (další řádky = popis)"
 HELP = ("Příkazy:\n/status — stav démona\n/queue — fronta úkolů\n/proposals — znovu poslat návrhy ke schválení\n"
-        "/run — spustit běh hned\n/pause, /resume — vypnout/zapnout automatický start\n/digest — přehled teď\n\n"
+        "/run — spustit běh hned\n/pause, /resume — vypnout/zapnout automatický start\n/digest — přehled teď\n"
+        f"{TASK_USAGE}\n\n"
         "Na dotaz k nejasnému úkolu odpověz reply na jeho zprávu.")
 
 
@@ -334,7 +336,7 @@ def _task_cmd(ctx: Ctx, text: str) -> str:
     try:
         return _add_task(ctx, parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else "", rest)
     except ValueError as e:
-        return f"❌ {e}"
+        return f"❌ {e}\nPoužití: {TASK_USAGE}\nProjekty: {', '.join(ctx.cfg.projects)}"
 
 
 # --- lessons ----------------------------------------------------------------------------------------------
