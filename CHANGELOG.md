@@ -74,3 +74,4 @@
 ## [2026-10-12] - Desktop dashboard: sloupce scrollují vlastním scrollbarem (Lively nepředává kolečko)
 ## [2026-10-12] - Konflikt harness PR mimo CHANGELOG: dashboard nabídne Vyřešit agentem / Přeimplementovat / Nechat
 ## [2026-10-12] - traces.py: jeden helper _gh_stdout místo čtyř kopií try/except kolem gh
+## [2026-10-12] - README: popis projektu harness v projects.yaml odpovídá skutečné konfiguraci
