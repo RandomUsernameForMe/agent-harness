@@ -165,6 +165,16 @@ def resolve_conflict_with_agent(p: Project, branch: str, billing: str) -> str:
         traces.git_run(["worktree", "remove", "--force", str(wt)], p.path)
 
 
+def recent_block(p: Project, wt: Path, commits: int = 30) -> str:
+    """Recent PRs (any state) and base commits, so the scout does not propose work that already exists."""
+    prs = traces.recent_prs(wt) or []
+    lines = [f"  #{x['number']} [{x['state'].lower()}] {x['title']}" for x in prs]
+    log = traces._git(["log", f"origin/{p.base}", f"-{commits}", "--format=%s"], wt)
+    if log.returncode == 0:
+        lines += [f"  {s}" for s in log.stdout.splitlines() if s.strip()]
+    return "\n".join(lines) or "  (none)"
+
+
 def real_explore(cfg: Config) -> Callable[[str, list[Task], str], tuple[str, dict]]:
     def explore(name: str, known: list[Task], lens: str) -> tuple[str, dict]:
         p = cfg.projects[name]
@@ -173,7 +183,8 @@ def real_explore(cfg: Config) -> Callable[[str, list[Task], str], tuple[str, dic
         prompt = render_prompt(f"discover_{lens}.md", project=name, max_diff_lines=p.max_diff_lines,
                                verify="\n".join(f"  {c}" for c in p.verify),
                                known="\n".join(f"  [{t.status}] {t.title}" for t in known) or "  (none)",
-                               notes=notes or "(none)", lessons=lessons_block(name))
+                               notes=notes or "(none)", lessons=lessons_block(name),
+                               recent=recent_block(p, wt))
         r = run_agent(prompt, cwd=wt, model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=40)
         return r.text, _agent_out("discover", r)
     return explore

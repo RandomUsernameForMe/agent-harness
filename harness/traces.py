@@ -164,6 +164,13 @@ def open_prs(repo_dir) -> list[dict] | None:
     return [pr | {"ci": ci_state(pr.pop("statusCheckRollup", None) or [])} for pr in json.loads(out or "[]")]
 
 
+def recent_prs(repo_dir, limit: int = 40) -> list[dict] | None:
+    """Latest PRs of any state (number, title, state); None when gh fails."""
+    out = _gh_stdout(["pr", "list", "--state", "all", "--limit", str(limit), "--json", "number,title,state"],
+                     repo_dir, f"gh pr list --state all in {repo_dir}")
+    return None if out is None else json.loads(out or "[]")
+
+
 def merged_since(repo_dir, ts: float) -> int | None:
     """Number of PRs merged into the repo after ts; None when gh fails."""
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
