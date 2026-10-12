@@ -11,7 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -80,10 +80,11 @@ def progress(evs: list[dict]) -> dict:
             "workers": [w | {"title": titles.get(w["id"], "")} for w in workers.values()]}
 
 
-def local_origin(request: Request) -> bool:
+def require_local_origin(request: Request) -> None:
     """Control endpoints spend quota: refuse cross-site requests (a page on the internet posting to localhost)."""
     origin = request.headers.get("origin")
-    return origin is None or origin.startswith(LOCAL_ORIGINS)
+    if origin is not None and not origin.startswith(LOCAL_ORIGINS):
+        raise HTTPException(403, "cross-origin request")
 
 
 def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs, merge=traces.merge_pr,
@@ -168,6 +169,13 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         pr_cache.pop(path, None)
         return f"PR #{pr['number']} zavřen, úkol {task_id} je zpět ve frontě."
 
+    def _project(name: str):
+        cfg = load_config(home / "projects.yaml")
+        project = cfg.projects.get(name)
+        if project is None:
+            raise HTTPException(404, f"unknown project {name!r}")
+        return cfg, project
+
     def run_sim(sim: Simulation, inputs) -> None:
         with sim.lock:
             execute(sim.app, inputs, sim.config, conn, simulated=True)
@@ -198,10 +206,8 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         return {"projects": projects, "proposals": proposals, "serve": control and serve.snapshot(control),
                 "boot": boot, "limits": {"max_tasks": cfg.max_tasks_per_run, "max_parallel": cfg.max_parallel}}
 
-    @app.post("/control/{action}")
-    def control_action(action: str, request: Request, body: dict | None = None):
-        if not local_origin(request):
-            raise HTTPException(403, "cross-origin request")
+    @app.post("/control/{action}", dependencies=[Depends(require_local_origin)])
+    def control_action(action: str, body: dict | None = None):
         if control is None:
             raise HTTPException(503, "start `harness serve` to control runs")
         try:
@@ -217,15 +223,10 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         return [pr | {"conflict": conflicts.get((path, pr["number"]))} if pr.get("mergeable") == "CONFLICTING" else pr
                 for pr in pulls]
 
-    @app.post("/prs/conflict")
-    def settle_conflict(req: ConflictRequest, request: Request):
+    @app.post("/prs/conflict", dependencies=[Depends(require_local_origin)])
+    def settle_conflict(req: ConflictRequest):
         """The owner's answer to a conflict the background rebase could not settle."""
-        if not local_origin(request):
-            raise HTTPException(403, "cross-origin request")
-        cfg = load_config(home / "projects.yaml")
-        project = cfg.projects.get(req.project)
-        if project is None:
-            raise HTTPException(404, f"unknown project {req.project!r}")
+        cfg, project = _project(req.project)
         entry = conflicts.get((project.path, req.number))
         pr = next((p for p in cached_prs(project.path) or [] if p["number"] == req.number), None)
         if entry is None or pr is None:
@@ -248,13 +249,9 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
                 raise HTTPException(409, str(e)) from None
         raise HTTPException(422, f"unknown action {req.action!r}")
 
-    @app.post("/prs/merge")
-    def merge_pr(req: MergeRequest, request: Request):
-        if not local_origin(request):
-            raise HTTPException(403, "cross-origin request")
-        project = load_config(home / "projects.yaml").projects.get(req.project)
-        if project is None:
-            raise HTTPException(404, f"unknown project {req.project!r}")
+    @app.post("/prs/merge", dependencies=[Depends(require_local_origin)])
+    def merge_pr(req: MergeRequest):
+        _, project = _project(req.project)
         try:
             message = merge(project.path, req.number)
         except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
