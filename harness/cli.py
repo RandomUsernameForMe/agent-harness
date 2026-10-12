@@ -158,6 +158,13 @@ def cmd_stats(args) -> int:
     for o in c["overhead"]:
         print(f"režie {o['run_id']} {o['node']}: {o['calls']}× {o['tokens'] or 0} tokenů "
               f"{traces.cost_label(o['cost_usd'], o['paid_usd'])}")
+    if c["tasks"]:
+        print("souhrn (projekt × model plánovače)")
+        for g in traces.summary(conn):
+            per = "-" if g["cost_per_merged"] is None else _money(g["cost_per_merged"])
+            print(f"{g['project']:<14} {g['plan_model']:<10} úkoly {g['tasks']:>3} merged {g['merged']:>3} "
+                  f"closed {g['closed']:>3} [!] {g['failed']:>3} [?] {g['unclear']:>3} open {g['open']:>3} "
+                  f"~${_money(g['cost_usd'])} ~$/merged {per}")
     rows = c["tasks"] + c["overhead"]
     total, paid = (sum(r[k] or 0 for r in rows) for k in ("cost_usd", "paid_usd"))
     print(f"celkem {traces.cost_label(total, paid)}" if rows else "žádná zaznamenaná volání")
