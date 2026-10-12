@@ -167,7 +167,7 @@
   body.samm input:is([type=number], [type=text]), body.samm :is(select, textarea) { background:#fff; color:var(--text); }
 
   /* blur: hide what PRs and tasks say, keep counts, states and buttons readable */
-  body.blurred :is(li.pr a, li.prop summary, li.prop > span, details p, #plan .item > label > span,
+  body.blurred :is(.pname, li.pr a, li.prop summary, li.prop > span, details p, #plan .item > label > span,
     #questions .item > div, .wrow .title, li.conflict pre, li.conflict span[title]) { filter:blur(5px); }
 </style>
 </head>
@@ -340,7 +340,7 @@ function renderScope(projects) {
   if (key === scopeKey) return;
   scopeKey = key;
   $("scope").innerHTML = `<span class="muted">Projekty:</span>` + names.map(n => `<label class="chip">
-      <input type="checkbox" value="${esc(n)}" ${excluded.has(n) ? "" : "checked"}> ${esc(n)}</label>`).join("");
+      <input type="checkbox" value="${esc(n)}" ${excluded.has(n) ? "" : "checked"}> <span class="pname">${esc(n)}</span></label>`).join("");
   $("scope").querySelectorAll("input").forEach(c => c.onchange = () => {
     c.checked ? excluded.delete(c.value) : excluded.add(c.value);
     try { localStorage.setItem("excluded", JSON.stringify([...excluded])); } catch (e) {}
@@ -453,7 +453,7 @@ function nodeState(w, node, run) {
 function renderFlow(p, run) {
   $("pipe").innerHTML = STAGES.map(([name, label, sub]) => {
     const extra = name === "discover" && Object.keys(p.discover).length
-      ? Object.entries(p.discover).map(([proj, st]) => `${esc(proj)} ${st === "done" ? "✓" : "…"}`).join(" · ") : sub;
+      ? Object.entries(p.discover).map(([proj, st]) => `<span class="pname">${esc(proj)}</span> ${st === "done" ? "✓" : "…"}`).join(" · ") : sub;
     return `<div class="stage ${stageState(name, p, run)}" data-stage="${name}">${label}<small>${extra}</small></div>`;
   }).join(`<span class="arrow">→</span>`);
   $("workers").innerHTML = p.workers.map(w => `<div class="wrow">
@@ -568,7 +568,7 @@ function renderProjects(projects, proposals) {
             title="Squash merge (draft se nejdřív označí ready), pak smaže větev a worktree">Merge</button></li>
           ${conflictBox(p.name, pr)}`).join("")}</ul>`
       : `<span class="muted">žádné otevřené PR</span>`;
-    return `<section><h3>${esc(p.name)}</h3>
+    return `<section><h3 class="pname">${esc(p.name)}</h3>
       <div class="counts"><span><b>${c[" "]}</b> ve frontě</span><span><b>${c["~"]}</b> návrhů</span>
         <span><b>${c["x"]}</b> hotovo</span>${c["?"] ? `<span style="color:var(--warn)"><b>${c["?"]}</b> nejasné</span>` : ""}
         ${cleanupInfo(p.cleanup)}</div>
