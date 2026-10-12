@@ -1,5 +1,4 @@
 """Pure helpers of `harness go`: parse model answers, build the plan, write the owner's approval to BACKLOG."""
-import hashlib
 import json
 import re
 
@@ -46,8 +45,7 @@ def safe_title(value) -> str:
 
 
 def proposal_id(project: str, title: str) -> str:
-    digest = hashlib.sha1(title.encode()).hexdigest()[:6]
-    return f"{re.sub(r'[^A-Za-z0-9._-]', '-', project)}-ai-{digest}"
+    return backlog.task_id(project, "ai", title)
 
 
 def _kind(item: dict, lens: str) -> str:
