@@ -80,3 +80,4 @@
 ## [2026-10-12] - Dashboard: kontrola origin jako závislost require_local_origin a helper _project
 ## [2026-10-12] - Discover: scout dostane seznam nedávných PR a commitů, aby nenavrhoval hotové úkoly
 ## [2026-10-12] - harness stats: souhrn úspěšnosti a ceny podle projektu a modelu plánovače
+## [2026-10-12] - Desktop dashboard: přepínač „Mlékárna“ (parodický vzhled SAMM) a přepínač rozmazání obsahu PR a úkolů
