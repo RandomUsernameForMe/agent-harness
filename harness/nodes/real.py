@@ -133,12 +133,9 @@ MARKER_LINE = re.compile(r"^(<{7}|>{7})( |$)", re.M)
 
 def _merge_base_in(wt: Path, base: str) -> list[str]:
     """Merge origin/base into the checked-out branch; CHANGELOG.md keeps both entries. Returns the files still in conflict."""
-    if traces._git(["merge", "-q", "--no-edit", f"origin/{base}"], wt).returncode == 0:
+    if traces.git_run(["merge", "-q", "--no-edit", f"origin/{base}"], wt).returncode == 0:
         return []
-    conflicts = traces._git(["diff", "--name-only", "--diff-filter=U"], wt).stdout.split()
-    if traces.CHANGELOG in conflicts:
-        traces._union_changelog(wt)
-    return [c for c in conflicts if c != traces.CHANGELOG]
+    return traces.settle_changelog(wt)
 
 
 def resolve_conflict_with_agent(p: Project, branch: str, billing: str) -> str:
@@ -165,7 +162,7 @@ def resolve_conflict_with_agent(p: Project, branch: str, billing: str) -> str:
         git(["push", "-q", "origin", f"HEAD:{branch}"], wt)
         return f"Konflikt vyřešen ({', '.join(files) or traces.CHANGELOG}), verify prošlo, změny pushnuté."
     finally:
-        traces._git(["worktree", "remove", "--force", str(wt)], p.path)
+        traces.git_run(["worktree", "remove", "--force", str(wt)], p.path)
 
 
 def real_explore(cfg: Config) -> Callable[[str, list[Task], str], tuple[str, dict]]:

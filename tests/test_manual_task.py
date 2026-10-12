@@ -66,3 +66,42 @@ def test_act_add_same_title_in_other_project(tmp_path):
     assert sorted(t.project for t in _tasks(env) if t.title == "X") == sorted([a, b])
     assert "už existuje" in serve.act(env.ctx, "add", {"project": a, "title": "x"})
     assert len([t for t in _tasks(env) if t.title.casefold() == "x"]) == 2
+
+
+_BL = ("## proj\r\n- [ ] P2 a-1 Jiný\r\n  popis a\r\n- [~] P2 p-1 [bug] Starý\r\n  starý popis\r\n  Hotovo = staré\r\n"
+       "  ACCEPT: pytest\r\n- [~] P3 p-2 Další\r\n  x\r\n")
+
+
+def _edit(env, **kw):
+    env.sim.backlog_path.write_bytes(_BL.encode())
+    data = {"task": "p-1", "title": "Nový", "description": "r1\nr2", "done": "Test: ok", "priority": 1, "approve": True}
+    return serve.act(env.ctx, "edit", data | kw)
+
+
+def test_act_edit_approves_and_keeps_rest(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    _edit(env)
+    new = env.sim.backlog_path.read_bytes().decode()
+    assert new == _BL.replace("- [~] P2 p-1 [bug] Starý\r\n  starý popis\r\n  Hotovo = staré\r\n",
+                              "- [ ] P1 p-1 [bug] Nový\r\n  r1\r\n  r2\r\n  Hotovo = Test: ok\r\n")
+
+
+def test_act_edit_without_approve_stays_proposal(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    _edit(env, approve=False)
+    t = next(t for t in _tasks(env) if t.id == "p-1")
+    assert t.status == "~" and t.title == "Nový" and t.priority == 1
+
+
+@pytest.mark.parametrize("kw", [{"title": "  "}, {"priority": 4}])
+def test_act_edit_invalid(tmp_path, kw):
+    env = Env(tmp_path, "happy-path", window=None)
+    with pytest.raises(ValueError):
+        _edit(env, **kw)
+    assert env.sim.backlog_path.read_bytes().decode() == _BL
+
+
+def test_act_edit_not_a_proposal(tmp_path):
+    env = Env(tmp_path, "happy-path", window=None)
+    assert _edit(env, task="a-1") == "už vyřízeno"
+    assert env.sim.backlog_path.read_bytes().decode() == _BL

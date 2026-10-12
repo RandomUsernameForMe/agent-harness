@@ -1,6 +1,12 @@
 import hashlib
 import re
+import threading
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, TypeVar
+
+T = TypeVar("T")
+LOCK = threading.Lock()  # serve, dashboard and graph nodes edit BACKLOG.md from different threads
 
 HEADER_RE = re.compile(r"^## (?P<project>\S+)\s*$")
 # id becomes a git branch name and CLI argument → restrict to safe characters; task_id() is the only creator
@@ -77,6 +83,23 @@ def set_status(text: str, task_id: str, status: str, note: str = "") -> str:
     raise KeyError(task_id)
 
 
+def replace_task(text: str, task_id: str, priority: int, status: str, title: str, body: list[str]) -> str:
+    """Rewrite the task's row and its indented description; every other line stays byte for byte."""
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        row = line.rstrip("\r\n")
+        m = TASK_RE.match(row)
+        if m and m["id"] == task_id:
+            eol = line[len(row):]
+            end = i + 1
+            while end < len(lines) and lines[end].startswith("  ") and lines[end].strip():
+                end += 1
+            new = [f"- [{status}] P{priority} {task_id} {title}", *(f"  {r}" for r in body)]
+            lines[i:end] = [r + eol for r in new]
+            return "".join(lines)
+    raise KeyError(task_id)
+
+
 def add_tasks(text: str, project: str, lines: list[str]) -> str:
     """Append task lines at the end of the project's section (created at the end of the file if missing)."""
     eol = "\r\n" if "\r\n" in text else "\n"
@@ -89,3 +112,19 @@ def add_tasks(text: str, project: str, lines: list[str]) -> str:
     while end > start + 1 and not rows[end - 1].strip():
         end -= 1
     return eol.join(rows[:end] + lines + rows[end:]) + eol
+
+
+def read(path: Path) -> str:
+    return path.read_bytes().decode("utf-8") if path.exists() else ""
+
+
+def edit_with(path: Path, fn: Callable[[str], tuple[str, T]]) -> T:
+    """Read-modify-write under the lock; fn returns (new text, result) and the result is passed on."""
+    with LOCK:
+        new, result = fn(read(path))
+        path.write_bytes(new.encode("utf-8"))
+        return result
+
+
+def edit(path: Path, fn: Callable[[str], str]) -> None:
+    edit_with(path, lambda text: (fn(text), None))

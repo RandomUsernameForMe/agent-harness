@@ -1,6 +1,6 @@
 import pytest
 
-from harness.backlog import add_tasks, parse, set_status
+from harness.backlog import add_tasks, parse, replace_task, set_status
 
 SAMPLE = """# Backlog
 
@@ -117,3 +117,11 @@ def test_en_dash_title_survives_rejection():
 def test_refactor_kind_round_trips():
     (t,) = parse("## demo\n- [~] P2 demo-ai-1 [refactor] Rozdělit serve.act\n")
     assert (t.kind, t.title) == ("refactor", "Rozdělit serve.act")
+
+
+def test_replace_task_swaps_row_and_description_only():
+    text = "## p\r\n- [~] P2 a Old\r\n  x\r\n  y\r\n- [ ] P1 b Other\r\n  z\r\n"
+    out = replace_task(text, "a", 3, " ", "New", ["n1"])
+    assert out == "## p\r\n- [ ] P3 a New\r\n  n1\r\n- [ ] P1 b Other\r\n  z\r\n"
+    with pytest.raises(KeyError):
+        replace_task(text, "zz", 1, " ", "t", [])

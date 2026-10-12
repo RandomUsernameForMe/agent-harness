@@ -47,7 +47,7 @@ Opus z toho navrhne krátké lekce pro jednotlivé projekty. Každou schvaluješ
 
 Důvod zamítnutí je nepovinný. V dashboardu se k němu dostaneš kliknutím na ❌, v Telegramu jako reply na zprávu zamítnutého návrhu.
 
-Když chyba leží v promptu harnessu (worker by selhal v jakémkoli projektu), reflexe zapíše návrh `[~]` do sekce `## harness`. Harness je v `projects.yaml` jako projekt s `discover: false` (go ani sken ho neprochází) a `allowed: ["harness/prompts/**", "CHANGELOG.md"]`. Guard tak zamítne jakoukoli změnu Python kódu. Výstup je draft PR a merge děláš ty.
+Když chyba leží v promptu harnessu (worker by selhal v jakémkoli projektu), reflexe zapíše návrh `[~]` do sekce `## harness`. Harness je v `projects.yaml` běžný projekt, `discover` nevypíná, takže ho prochází `harness go` i sken TODO. `allowed` jen vylučuje pojistky (`!harness/guard.py`, `!harness/sdk.py`, `!harness/quota.py`, `!projects.yaml`); zbytek kódu včetně promptů worker měnit smí. Výstup je draft PR a merge děláš ty.
 
 `prioritize` navíc dostane, jak jsi dosud naložil s úkoly každého projektu (hotovo, zamítnuto, selhalo, čeká).
 

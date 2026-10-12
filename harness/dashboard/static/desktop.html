@@ -402,6 +402,7 @@ function proposalGroup(heading, props) {
         ${t.kind && !["feature", "refactor"].includes(t.kind) ? `<span class="tag">${esc(t.kind)}</span>` : ""} ${esc(t.title)}</summary>
       ${t.description ? `<p>${esc(t.description)}</p>` : ""}</details>
       <button data-task="${esc(t.id)}" data-do="approve" title="Schválit → fronta" aria-label="Schválit" ${serveOn ? "" : "disabled"}>✅</button>
+      <button data-task="${esc(t.id)}" data-do="edit" title="Upravit" aria-label="Upravit" ${serveOn ? "" : "disabled"}>✏️</button>
       <button data-task="${esc(t.id)}" data-do="reject" title="Zamítnout" aria-label="Zamítnout" ${serveOn ? "" : "disabled"}>❌</button></li>`).join("")}</ul>`;
 }
 
@@ -450,6 +451,30 @@ function renderProjects(projects, proposals) {
   $("projects").querySelectorAll("[data-conflict]").forEach(b => b.onclick = () => settleConflict(b));
   $("projects").querySelectorAll("[data-do=approve]").forEach(b => b.onclick = () => act("approve", {task: b.dataset.task}));
   $("projects").querySelectorAll("[data-do=reject]").forEach(b => b.onclick = () => askReason(b));
+  $("projects").querySelectorAll("[data-do=edit]").forEach(b => b.onclick = () => editProposal(b, proposals.find(t => t.id === b.dataset.task)));
+}
+
+function editProposal(button, t) {
+  if (!t) return;
+  const rows = t.description ? t.description.split("\n") : [];
+  const done = (rows.find(r => r.startsWith("Hotovo = ")) || "").slice(9);
+  const text = rows.filter(r => !r.startsWith("Hotovo = ") && !r.startsWith("ACCEPT:")).join("\n");
+  const li = button.closest("li");
+  li.innerHTML = `<form class="row" style="flex:1;flex-wrap:wrap">
+      <input type="text" name="title" required value="${esc(t.title)}" aria-label="Titulek úkolu">
+      <select name="priority" aria-label="Priorita">${[1, 2, 3].map(p => `<option value="${p}"${p === t.priority ? " selected" : ""}>P${p}</option>`).join("")}</select>
+      <textarea name="description" rows="3" aria-label="Popis" style="flex-basis:100%">${esc(text)}</textarea>
+      <input type="text" name="done" value="${esc(done)}" placeholder="Hotovo = …" aria-label="Hotovo =" style="flex-basis:100%">
+      <button class="primary" value="0">Uložit</button><button class="primary" value="1">Uložit a schválit</button>
+      <button type="button">Zpět</button></form>`;
+  const f = li.querySelector("form");
+  f.onsubmit = e => {
+    e.preventDefault();
+    const v = f.elements;
+    act("edit", {task: t.id, title: v.title.value, description: v.description.value, done: v.done.value,
+      priority: +v.priority.value, approve: e.submitter.value === "1"});
+  };
+  li.querySelector("button[type=button]").onclick = () => { projectsKey = ""; refresh(); };
 }
 
 function askReason(button) {
