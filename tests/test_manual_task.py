@@ -56,3 +56,13 @@ def test_act_add_unknown_project(tmp_path):
     env = Env(tmp_path, "happy-path", window=None)
     with pytest.raises(ValueError):
         serve.act(env.ctx, "add", {"project": "neznamy", "title": "x"})
+
+
+def test_act_add_same_title_in_other_project(tmp_path):
+    env = Env(tmp_path, "parallel-projects", window=None)
+    a, b = list(env.ctx.cfg.projects)[:2]
+    assert "přidán" in serve.act(env.ctx, "add", {"project": a, "title": "X"})
+    assert "přidán" in serve.act(env.ctx, "add", {"project": b, "title": "X"})
+    assert sorted(t.project for t in _tasks(env) if t.title == "X") == sorted([a, b])
+    assert "už existuje" in serve.act(env.ctx, "add", {"project": a, "title": "x"})
+    assert len([t for t in _tasks(env) if t.title.casefold() == "x"]) == 2

@@ -319,7 +319,7 @@ def _add_task(ctx: Ctx, project: str, title: str, description: str = "", done: s
     note = []
 
     def change(text: str) -> str:
-        if any(t.id == task_id or t.title.casefold() == title.casefold() for t in backlog.parse(text)):
+        if any(t.id == task_id or (t.project == project and t.title.casefold() == title.casefold()) for t in backlog.parse(text)):
             note.append(f"➖ {task_id}: už existuje.")
             return text
         lines = task_lines({"id": task_id, "title": title, "description": description, "done": " ".join(done.split())}, " ")
