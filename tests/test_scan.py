@@ -79,3 +79,12 @@ def test_daemon_scan_appends_new_proposals_once(tmp_path):
     assert _scan_into(cfg, backlog_path) == 0
     tasks = parse(backlog_path.read_bytes().decode("utf-8"))
     assert [t.status for t in tasks] == [" ", "~"]
+
+
+def test_scan_marker_only_at_comment_start(tmp_path):
+    repo = make_repo(tmp_path)
+    commit_files(repo, {"prose.py": "# sken TODO 1× denně\n# harness serve: … sken TODO 1× denně na začátku okna\n",
+                        "a.py": "# TODO: opravit\n", "b.js": "// FIXME y\n", "c.js": "/*\n * TODO z\n */\n"})
+    props = scan_project(project(repo))
+    assert [(p.path, p.title) for p in props] == [
+        ("a.py", "TODO: opravit"), ("b.js", "FIXME: y"), ("c.js", "TODO: z")]
