@@ -101,6 +101,25 @@ def costs(conn) -> dict:
     return {"tasks": tasks, "overhead": overhead}
 
 
+def summary(conn) -> list[dict]:
+    """Tasks grouped by (project, planner model); a task without a plan call (ACCEPT skips it) gets '-'."""
+    plan_models = {r["worker"]: r["model"] for r in _rows(conn, """
+        SELECT worker, model FROM agent_calls WHERE id IN (
+          SELECT MIN(id) FROM agent_calls WHERE node = 'plan' AND worker IS NOT NULL GROUP BY worker)""")}
+    groups: dict[tuple, dict] = {}
+    for t in costs(conn)["tasks"]:
+        key = (t["project"] or "-", plan_models.get(t["task_id"]) or "-")
+        g = groups.setdefault(key, {"project": key[0], "plan_model": key[1], "tasks": 0, "merged": 0, "closed": 0,
+                                    "failed": 0, "unclear": 0, "open": 0, "cost_usd": 0.0})
+        g["tasks"] += 1
+        if t["state"] in g:
+            g[t["state"]] += 1
+        g["cost_usd"] += t["cost_usd"]
+    return [g | {"cost_usd": round(g["cost_usd"], 6),
+                 "cost_per_merged": round(g["cost_usd"] / g["merged"], 2) if g["merged"] else None}
+            for _, g in sorted(groups.items())]
+
+
 def backfill(conn) -> int:
     """Calls of real runs from before the ledger, rebuilt from event-log usage (no steps, no cache tokens)."""
     with _lock:

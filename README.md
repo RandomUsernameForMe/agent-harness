@@ -33,7 +33,7 @@ Každé volání agenta se zapíše do `harness.db`, i když selže nebo narazí
 
 Plný transkript volání najdeš podle `session_id` v `~/.claude/projects/`. Ke kterému běhu, uzlu a úkolu volání patří, se zjistí z `config["metadata"]` LangGraphu, takže stav grafu kroky neobsahuje.
 
-`harness stats`, stejně jako začátek každého `run`/`go`, si přes `gh` zjistí stav PR úkolů a uloží ho do tabulky `task_outcomes`. Dashboard ukazuje volání agentů vybraného běhu (po kliknutí kroky) a cenu za úkol. Ceny jsou u subscription jen odhad SDK.
+`harness stats`, stejně jako začátek každého `run`/`go`, si přes `gh` zjistí stav PR úkolů a uloží ho do tabulky `task_outcomes`. Dashboard ukazuje volání agentů vybraného běhu (po kliknutí kroky) a cenu za úkol. Ceny jsou u subscription jen odhad SDK. Pod tabulkou úkolů vypíše `harness stats` souhrn po projektech a modelech plánovače (merged/closed/[!]/[?]/open a cena za zmergovaný PR), z něhož se čte výsledek A/B testu `plan_model`.
 
 ## Self-improvement (fáze 5)
 
