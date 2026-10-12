@@ -87,3 +87,4 @@
 ## [2026-10-12] - Rozmazání skrývá i jména projektů
 ## [2026-10-12] - Nový projekt kytky (private repo, base master, verify s next typegen)
 ## [2026-10-12] - Discover: oprava volání traces._git → git_run (přehled nedávných commitů padal)
+## [2026-10-12] - Animované vysvětlující video SAMM (docs/video: HTML scéna + render do MP4)
