@@ -254,6 +254,73 @@ def test_overview_resolves_conflicting_harness_prs_in_background(tmp_path):
     assert len(resolved) == 2  # same head commits: no second attempt
 
 
+def _conflict_app(tmp_path, fix):
+    """Two harness PRs whose rebase hits a conflict in a.txt; returns the client and the requeue calls."""
+    import threading
+    from harness.traces import ContentConflict
+    (tmp_path / "a").mkdir()
+    (tmp_path / "projects.yaml").write_text("projects:\n  alpha: {path: a, base: main, verify: [x]}\n", encoding="utf-8")
+    (tmp_path / "BACKLOG.md").write_text(
+        "## alpha\n- [x] P2 t-1 [feature] Titulek → https://x/pull/1\n  popis\n", encoding="utf-8")
+    pr = {"mergeable": "CONFLICTING", "baseRefName": "main", "headRefOid": "s1"}
+    pulls = [pr | {"number": 1, "headRefName": "harness/t-1"}, pr | {"number": 2, "headRefName": "harness/t-2"}]
+    seen = threading.Semaphore(0)
+
+    def resolve(path, branch, base):
+        seen.release()
+        raise ContentConflict(["a.txt"])
+    requeued = []
+    client = TestClient(create_app(tmp_path, prs=lambda p: pulls, resolve=resolve, fix=fix,
+                                   requeue=lambda path, n, branch: requeued.append((path.name, n, branch))))
+    client.get("/overview")
+    assert seen.acquire(timeout=5) and seen.acquire(timeout=5)
+    return client, requeued
+
+
+def _conflict_of(client, number):
+    for _ in range(100):
+        pr = next(p for p in client.get("/overview").json()["projects"][0]["prs"] if p["number"] == number)
+        if not pr["conflict"] or pr["conflict"]["state"] != "resolving":
+            return pr["conflict"]
+        time.sleep(0.05)
+    raise AssertionError("agent still resolving")
+
+
+def test_unresolvable_conflict_waits_for_the_owner(tmp_path):
+    fixed = []
+
+    def fix(project, branch, billing):
+        fixed.append((project.name, branch, billing))
+        if branch == "harness/t-2":
+            raise RuntimeError("`pytest` po vyřešení konfliktu selhal")
+    client, requeued = _conflict_app(tmp_path, fix)
+    assert _conflict_of(client, 1) == {"files": ["a.txt"], "state": "open"}
+    assert requeued == [] and fixed == []  # nothing happens until the owner picks an action
+    post = lambda n, action, **kw: client.post("/prs/conflict", json={"project": "alpha", "number": n, "action": action}, **kw)
+
+    assert post(1, "agent").status_code == 200
+    assert _conflict_of(client, 1) is None
+    assert post(2, "agent").status_code == 200
+    assert _conflict_of(client, 2) == {"files": ["a.txt"], "state": "failed", "error": "`pytest` po vyřešení konfliktu selhal"}
+    assert fixed == [("alpha", "harness/t-1", "subscription"), ("alpha", "harness/t-2", "subscription")]
+
+    assert post(2, "keep").status_code == 200
+    assert _conflict_of(client, 2)["state"] == "kept"
+    assert post(2, "agent", headers={"Origin": "https://evil.example"}).status_code == 403
+    assert post(2, "bogus").status_code == 422
+    assert post(9, "keep").status_code == 404
+
+
+def test_reimplement_closes_pr_and_requeues_task(tmp_path):
+    client, requeued = _conflict_app(tmp_path, lambda *a: None)
+    r = client.post("/prs/conflict", json={"project": "alpha", "number": 1, "action": "reimplement"})
+    assert r.status_code == 200, r.text
+    assert requeued == [("a", 1, "harness/t-1")]
+    assert (tmp_path / "BACKLOG.md").read_text(encoding="utf-8") == "## alpha\n- [ ] P2 t-1 [feature] Titulek\n  popis\n"
+    assert client.post("/prs/conflict", json={"project": "alpha", "number": 2, "action": "reimplement"}).status_code == 422
+    assert requeued == [("a", 1, "harness/t-1")]  # t-2 is not in the backlog: its PR stays open
+
+
 def test_progress_tracks_worker_nodes(client):
     run_id = client.post("/simulate", json={"scenario": "flaky-tests", "delay": 0}).json()["run_id"]
     wait_for(client, run_id, "run_end")
