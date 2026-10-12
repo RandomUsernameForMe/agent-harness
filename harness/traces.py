@@ -131,16 +131,8 @@ def pr_urls(text: str) -> dict[str, str]:
 
 def pr_state(url: str) -> str | None:
     """open / merged / closed from gh; None when gh fails (state is then left as it was)."""
-    try:
-        out = subprocess.run(["gh", "pr", "view", url, "--json", "state", "-q", ".state"],
-                             capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired) as e:  # gh missing or hanging must not block a run start
-        print(f"gh pr view {url}: {type(e).__name__}: {e}", file=sys.stderr)
-        return None
-    if out.returncode != 0:
-        print(f"gh pr view {url}: {out.stderr.strip()}", file=sys.stderr)
-        return None
-    return out.stdout.strip().lower() or None
+    out = _gh_stdout(["pr", "view", url, "--json", "state", "-q", ".state"], None, f"gh pr view {url}")
+    return None if out is None else out.strip().lower() or None
 
 
 PEOPLE = ("OWNER", "MEMBER", "COLLABORATOR")  # not bots like vercel, which comment on every PR
@@ -155,51 +147,46 @@ def review_text(data: dict) -> str:
 
 def pr_feedback(url: str) -> tuple[str, str] | None:
     """(state, review comments of people) of a PR; None when gh fails."""
-    try:
-        out = subprocess.run(["gh", "pr", "view", url, "--json", "state,reviews,comments"],
-                             capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        print(f"gh pr view {url}: {type(e).__name__}: {e}", file=sys.stderr)
+    out = _gh_stdout(["pr", "view", url, "--json", "state,reviews,comments"], None, f"gh pr view {url}")
+    if out is None:
         return None
-    if out.returncode != 0:
-        print(f"gh pr view {url}: {out.stderr.strip()}", file=sys.stderr)
-        return None
-    data = json.loads(out.stdout or "{}")
+    data = json.loads(out or "{}")
     return str(data.get("state", "")).lower(), review_text(data)
 
 
 def open_prs(repo_dir) -> list[dict] | None:
     """Open PRs of the repo checked out in repo_dir; None when gh fails."""
-    try:
-        out = _gh(["pr", "list", "--state", "open", "--json",
-                   "number,title,url,isDraft,createdAt,mergeable,statusCheckRollup,"
-                   "headRefName,baseRefName,headRefOid"], repo_dir)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        print(f"gh pr list in {repo_dir}: {type(e).__name__}: {e}", file=sys.stderr)
+    out = _gh_stdout(["pr", "list", "--state", "open", "--json",
+                      "number,title,url,isDraft,createdAt,mergeable,statusCheckRollup,"
+                      "headRefName,baseRefName,headRefOid"], repo_dir, f"gh pr list in {repo_dir}")
+    if out is None:
         return None
-    if out.returncode != 0:
-        print(f"gh pr list in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
-        return None
-    return [pr | {"ci": ci_state(pr.pop("statusCheckRollup", None) or [])} for pr in json.loads(out.stdout or "[]")]
+    return [pr | {"ci": ci_state(pr.pop("statusCheckRollup", None) or [])} for pr in json.loads(out or "[]")]
 
 
 def merged_since(repo_dir, ts: float) -> int | None:
     """Number of PRs merged into the repo after ts; None when gh fails."""
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
-    try:
-        out = _gh(["pr", "list", "--state", "merged", "--search", f"merged:>{since}",
-                   "--limit", "1000", "--json", "number"], repo_dir)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        print(f"gh pr list --state merged in {repo_dir}: {type(e).__name__}: {e}", file=sys.stderr)
-        return None
-    if out.returncode != 0:
-        print(f"gh pr list --state merged in {repo_dir}: {out.stderr.strip()}", file=sys.stderr)
-        return None
-    return len(json.loads(out.stdout or "[]"))
+    out = _gh_stdout(["pr", "list", "--state", "merged", "--search", f"merged:>{since}",
+                      "--limit", "1000", "--json", "number"], repo_dir, f"gh pr list --state merged in {repo_dir}")
+    return None if out is None else len(json.loads(out or "[]"))
 
 
 def _gh(args: list[str], cwd) -> subprocess.CompletedProcess:
     return subprocess.run(["gh", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=GH_TIMEOUT)
+
+
+def _gh_stdout(args: list[str], cwd, label: str) -> str | None:
+    """stdout of gh; None (reported on stderr) when gh is missing, hangs or fails."""
+    try:
+        out = _gh(args, cwd)
+    except (OSError, subprocess.TimeoutExpired) as e:  # gh missing or hanging must not block a run start
+        print(f"{label}: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    if out.returncode != 0:
+        print(f"{label}: {out.stderr.strip()}", file=sys.stderr)
+        return None
+    return out.stdout
 
 
 def ci_state(checks: list[dict]) -> str | None:
