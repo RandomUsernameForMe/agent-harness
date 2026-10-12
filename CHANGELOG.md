@@ -76,3 +76,4 @@
 ## [2026-10-12] - traces.py: jeden helper _gh_stdout místo čtyř kopií try/except kolem gh
 ## [2026-10-12] - README: popis projektu harness v projects.yaml odpovídá skutečné konfiguraci
 ## [2026-10-12] - Dashboard: úprava návrhu před schválením (akce edit, ✏️)
+## [2026-10-12] - traces.py: veřejné settle_changelog/git_run/union_changelog, real.py už nesahá na privátní jména traces
