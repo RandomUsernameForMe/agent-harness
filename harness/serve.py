@@ -330,6 +330,29 @@ def _add_task(ctx: Ctx, project: str, title: str, description: str = "", done: s
     return note[0]
 
 
+def _edit_task(ctx: Ctx, task_id: str, title: str, description: str, done: str, priority: int, approve: bool) -> str:
+    title = safe_title(title)[:100]
+    if not title:
+        raise ValueError("prázdný titulek")
+    if priority not in (1, 2, 3):
+        raise ValueError("priorita musí být 1–3")
+    note = []
+
+    def change(text: str) -> str:
+        t = next((t for t in backlog.parse(text) if t.id == task_id), None)
+        if t is None or t.status != "~":
+            note.append("už vyřízeno")
+            return text
+        accept = [r for r in t.description.splitlines() if r.startswith("ACCEPT:")]
+        body = [r.strip() for r in description.splitlines() if r.strip()]
+        body += [f"Hotovo = {' '.join(done.split())}"] if done.strip() else []
+        kind = f"[{t.kind}] " if t.kind else ""
+        note.append("upraveno → fronta" if approve else "upraveno")
+        return backlog.replace_task(text, task_id, priority, " " if approve else "~", kind + title, body + accept)
+    edit_backlog(ctx.backlog_path, change)
+    return note[0]
+
+
 def _task_cmd(ctx: Ctx, text: str) -> str:
     first, _, rest = text.partition("\n")
     parts = first.split(maxsplit=2)
@@ -580,6 +603,10 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
             reply = _add_task(ctx, str(data.get("project") or ""), str(data.get("title") or ""),
                               str(data.get("description") or ""), str(data.get("done") or ""),
                               int(data.get("priority") or 2))
+        elif action == "edit":
+            reply = _edit_task(ctx, str(data.get("task")), str(data.get("title") or ""),
+                               str(data.get("description") or ""), str(data.get("done") or ""),
+                               int(data.get("priority") or 2), bool(data.get("approve")))
         elif action in ("pause", "resume"):
             reply = _command(ctx, action)
         else:

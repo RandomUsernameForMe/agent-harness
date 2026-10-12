@@ -70,6 +70,23 @@ def set_status(text: str, task_id: str, status: str, note: str = "") -> str:
     raise KeyError(task_id)
 
 
+def replace_task(text: str, task_id: str, priority: int, status: str, title: str, body: list[str]) -> str:
+    """Rewrite the task's row and its indented description; every other line stays byte for byte."""
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        row = line.rstrip("\r\n")
+        m = TASK_RE.match(row)
+        if m and m["id"] == task_id:
+            eol = line[len(row):]
+            end = i + 1
+            while end < len(lines) and lines[end].startswith("  ") and lines[end].strip():
+                end += 1
+            new = [f"- [{status}] P{priority} {task_id} {title}", *(f"  {r}" for r in body)]
+            lines[i:end] = [r + eol for r in new]
+            return "".join(lines)
+    raise KeyError(task_id)
+
+
 def add_tasks(text: str, project: str, lines: list[str]) -> str:
     """Append task lines at the end of the project's section (created at the end of the file if missing)."""
     eol = "\r\n" if "\r\n" in text else "\n"
