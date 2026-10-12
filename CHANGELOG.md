@@ -86,3 +86,4 @@
 ## [2026-10-12] - SAMM: výraznější rysy krav a občasná idle animace s logem jejich firmy
 ## [2026-10-12] - Rozmazání skrývá i jména projektů
 ## [2026-10-12] - Nový projekt kytky (private repo, base master, verify s next typegen)
+## [2026-10-12] - Discover: oprava volání traces._git → git_run (přehled nedávných commitů padal)

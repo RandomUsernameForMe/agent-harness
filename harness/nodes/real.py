@@ -169,7 +169,7 @@ def recent_block(p: Project, wt: Path, commits: int = 30) -> str:
     """Recent PRs (any state) and base commits, so the scout does not propose work that already exists."""
     prs = traces.recent_prs(wt) or []
     lines = [f"  #{x['number']} [{x['state'].lower()}] {x['title']}" for x in prs]
-    log = traces._git(["log", f"origin/{p.base}", f"-{commits}", "--format=%s"], wt)
+    log = traces.git_run(["log", f"origin/{p.base}", f"-{commits}", "--format=%s"], wt)
     if log.returncode == 0:
         lines += [f"  {s}" for s in log.stdout.splitlines() if s.strip()]
     return "\n".join(lines) or "  (none)"

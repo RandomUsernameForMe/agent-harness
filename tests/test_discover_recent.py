@@ -18,14 +18,14 @@ def test_recent_prs_parses_and_none_on_failure(monkeypatch):
 
 def test_recent_block_prs_and_commits(monkeypatch):
     monkeypatch.setattr(traces, "recent_prs", lambda d: [{"number": 7, "title": "X", "state": "MERGED"}])
-    monkeypatch.setattr(traces, "_git", lambda a, c: subprocess.CompletedProcess(a, 0, "fix y\n", ""))
+    monkeypatch.setattr(traces, "git_run", lambda a, c: subprocess.CompletedProcess(a, 0, "fix y\n", ""))
     out = real.recent_block(SimpleNamespace(base="main"), ".")
     assert "#7 [merged] X" in out and "fix y" in out
 
 
 def test_recent_block_gh_failure_keeps_commits(monkeypatch):
     monkeypatch.setattr(traces, "recent_prs", lambda d: None)
-    monkeypatch.setattr(traces, "_git", lambda a, c: subprocess.CompletedProcess(a, 0, "fix y\n", ""))
+    monkeypatch.setattr(traces, "git_run", lambda a, c: subprocess.CompletedProcess(a, 0, "fix y\n", ""))
     assert real.recent_block(SimpleNamespace(base="main"), ".").strip() == "fix y"
 
 
