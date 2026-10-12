@@ -156,7 +156,7 @@ def test_merge_pr_leaves_other_conflicts_alone(tmp_path, monkeypatch):
     assert len(git(["worktree", "list"], repo).splitlines()) == 1
 
 
-def _resolver(tmp_path, monkeypatch, write: str | None, verify: str = "true"):
+def _resolver(tmp_path, monkeypatch, write: str | None, verify: str = "python -c pass"):
     """Content conflict in a.txt; the fake agent writes `write` into a.txt (None = leaves the markers)."""
     from harness.nodes import real
     from harness.sdk import WorkerResult
