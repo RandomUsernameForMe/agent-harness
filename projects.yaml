@@ -44,6 +44,8 @@ projects:
     setup: ["npm ci"]
     # next typegen: globální PageProps/LayoutProps vznikají až při buildu, v čistém worktree by tsc padal
     verify: ["npm test", "npx next typegen", "npx tsc --noEmit"]
+    # Claude přes MCP produkce doplní kytky s needsSetup (druh, intervaly, nároky); MCP_SECRET z kytky/.env.local
+    idle: {cmd: '..\harness\.venv\Scripts\python.exe ..\harness\scripts\kytky_fill.py', every: 24h}
   # harness upravuje sám sebe (discover, reflexe, ručně); pojistky mimo dosah, merge jen ručně z dashboardu
   harness:
     path: .
