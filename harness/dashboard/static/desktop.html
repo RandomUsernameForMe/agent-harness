@@ -802,7 +802,7 @@ for (const col of document.querySelectorAll(".wrap > .col")) {
   col.addEventListener("pointermove", e => {
     if (startY === null) return;
     if (!dragged && Math.abs(e.clientY - startY) < 5) return;
-    if (!dragged) { dragged = true; col.classList.add("dragging"); col.setPointerCapture(e.pointerId); }
+    if (!dragged) { dragged = true; col.classList.add("dragging"); try { col.setPointerCapture(e.pointerId); } catch (_) {} }  // throws on Lively's forwarded (button-less) moves
     col.scrollTop = startTop - (e.clientY - startY);
   });
   const end = () => { startY = null; col.classList.remove("dragging"); };
