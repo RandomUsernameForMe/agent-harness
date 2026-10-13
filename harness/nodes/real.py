@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 
@@ -138,31 +139,42 @@ def _merge_base_in(wt: Path, base: str) -> list[str]:
     return traces.settle_changelog(wt)
 
 
+@contextmanager
+def _pr_worktree(p: Project, branch: str, prefix: str, fetch: tuple[str, ...]):
+    """Throwaway detached worktree of origin/<branch>, removed on exit."""
+    git(["fetch", "-q", "origin", *fetch], p.path)
+    wt = Path(tempfile.mkdtemp(prefix=prefix))
+    git(["worktree", "add", "-q", "--detach", str(wt), f"origin/{branch}"], p.path)
+    try:
+        yield wt
+    finally:
+        traces.git_run(["worktree", "remove", "--force", str(wt)], p.path)
+
+
+def _verify_or_raise(p: Project, wt: Path, after: str) -> None:
+    for cmd in (*p.setup, *p.verify):
+        ok, out = sh(cmd, wt)
+        if not ok:
+            raise RuntimeError(f"`{cmd}` {after} selhal:\n{out[-1500:]}")
+
+
 def resolve_conflict_with_agent(p: Project, branch: str, billing: str) -> str:
     """Merge origin/base into a conflicting PR branch in a throwaway worktree, let an agent settle the files beyond
     CHANGELOG.md and push only when setup + verify pass. RuntimeError says why nothing was pushed."""
     if err := check_billing(billing, os.environ):
         raise RuntimeError(err)
-    git(["fetch", "-q", "origin", p.base, branch], p.path)
-    wt = Path(tempfile.mkdtemp(prefix="harness-conflict-"))
-    git(["worktree", "add", "-q", "--detach", str(wt), f"origin/{branch}"], p.path)
-    try:
+    with _pr_worktree(p, branch, "harness-conflict-", (p.base, branch)) as wt:
         files = _merge_base_in(wt, p.base)
         if files:
             run_agent(render_prompt("resolve_conflict.md", base=p.base, files="\n".join(files)), cwd=wt,
                       model="sonnet", tools=WRITE_TOOLS, disallowed=NO_PUBLISH, max_turns=60)
             if left := [f for f in files if MARKER_LINE.search((wt / f).read_text(encoding="utf-8", errors="replace"))]:
                 raise RuntimeError(f"agent nechal konfliktní značky v: {', '.join(left)}")
-        for cmd in (*p.setup, *p.verify):
-            ok, out = sh(cmd, wt)
-            if not ok:
-                raise RuntimeError(f"`{cmd}` po vyřešení konfliktu selhal:\n{out[-1500:]}")
+        _verify_or_raise(p, wt, "po vyřešení konfliktu")
         git(["add", "-A"], wt)
         git(["commit", "-q", "--no-edit"], wt)
         git(["push", "-q", "origin", f"HEAD:{branch}"], wt)
         return f"Konflikt vyřešen ({', '.join(files) or traces.CHANGELOG}), verify prošlo, změny pushnuté."
-    finally:
-        traces.git_run(["worktree", "remove", "--force", str(wt)], p.path)
 
 
 def failed_ci_log(p: Project, branch: str) -> str:
@@ -180,24 +192,16 @@ def fix_ci_with_agent(p: Project, branch: str, billing: str) -> str:
     and the agent changed something. RuntimeError says why nothing was pushed."""
     if err := check_billing(billing, os.environ):
         raise RuntimeError(err)
-    git(["fetch", "-q", "origin", branch], p.path)
-    wt = Path(tempfile.mkdtemp(prefix="harness-ci-"))
-    git(["worktree", "add", "-q", "--detach", str(wt), f"origin/{branch}"], p.path)
-    try:
+    with _pr_worktree(p, branch, "harness-ci-", (branch,)) as wt:
         r = run_agent(render_prompt("fix_ci.md", log=failed_ci_log(p, branch) or "(log unavailable, run the tests)"),
                       cwd=wt, model="sonnet", tools=WRITE_TOOLS, disallowed=NO_PUBLISH, max_turns=60)
         git(["add", "-A"], wt)
         if traces.git_run(["diff", "--cached", "--quiet"], wt).returncode == 0:
             raise RuntimeError(f"agent nic nezměnil: {r.text[-300:]}")
-        for cmd in (*p.setup, *p.verify):
-            ok, out = sh(cmd, wt)
-            if not ok:
-                raise RuntimeError(f"`{cmd}` po opravě CI selhal:\n{out[-1500:]}")
+        _verify_or_raise(p, wt, "po opravě CI")
         git(["commit", "-q", "-m", "fix: failing CI"], wt)
         git(["push", "-q", "origin", f"HEAD:{branch}"], wt)
         return f"CI opraveno, verify prošlo, změny pushnuté. {r.text[-300:]}"
-    finally:
-        traces.git_run(["worktree", "remove", "--force", str(wt)], p.path)
 
 
 def recent_block(p: Project, wt: Path, commits: int = 30) -> str:
