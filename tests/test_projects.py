@@ -107,3 +107,21 @@ def test_harness_edits_itself_except_safeguards():
     assert check_diff(ok, 10, h.allowed, h.max_diff_lines) is None
     for path in ("harness/guard.py", "projects.yaml", "harness/sdk.py", "harness/quota.py"):
         assert check_diff([path], 10, h.allowed, h.max_diff_lines) == f"forbidden paths: {path}"
+
+
+def test_idle_cmd_or_prompt_with_interval(tmp_path):
+    from harness.projects import Idle
+    cfg = load_config(write(tmp_path, "projects:\n"
+                                      "  a: {path: a, base: main, verify: [x], idle: {cmd: npm run data, every: 30m}}\n"
+                                      "  b: {path: b, base: main, verify: [x], idle: {prompt: projdi logy}}\n"
+                                      "  c: {path: c, base: main, verify: [x]}\n"))
+    assert cfg.projects["a"].idle == Idle("npm run data", None, 1800)
+    assert cfg.projects["b"].idle == Idle(None, "projdi logy", 86400)
+    assert cfg.projects["c"].idle is None
+
+
+@pytest.mark.parametrize("idle,error", [("{cmd: x, prompt: y}", "exactly one"), ("{every: 1h}", "exactly one"),
+                                        ("{cmd: x, every: 1w}", "idle.every"), ("{cmd: x, every: 0h}", "idle.every")])
+def test_bad_idle_raises(tmp_path, idle, error):
+    with pytest.raises(ValueError, match=error):
+        load_config(write(tmp_path, f"projects:\n  a: {{path: a, base: main, verify: [x], idle: {idle}}}\n"))

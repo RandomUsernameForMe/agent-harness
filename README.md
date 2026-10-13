@@ -79,7 +79,18 @@ Discover (lensy fix a feature) ke každému návrhu přidá `accept`, příkaz, 
 Jde o jeden proces: Telegram bot (long polling, nepotřebuje veřejnou URL) a plánovač. Autorun běží kdykoli, nejen v noci. Co spustí, určuje stav projektu (limity jsou konstanty v `harness/serve.py`, kontrola nejvýš jednou za 5 minut):
 1. frontu projektu zpracuje, jen když má projekt méně než 6 otevřených PR,
 2. cleanup review pustí, když poslední proběhl před víc než 14 dny, od té doby se mergnulo aspoň 10 PR, nebo ještě nikdy neproběhl,
-3. nové úkoly navrhuje, jen když má projekt méně než 10 návrhů `[~]`, nejvýš jednou za 24 h.
+3. nové úkoly navrhuje, jen když má projekt méně než 10 návrhů `[~]`, nejvýš jednou za 24 h,
+4. když nic z toho nečeká, pustí vlastní idle činnost projektu z `projects.yaml`:
+
+```yaml
+projects:
+  kytky:
+    idle: {cmd: "npm run refresh-data", every: 24h}     # příkaz ve složce projektu
+  web:
+    idle: {prompt: "projdi logy chyb a navrhni opravy", every: 7d}   # vlastní scout
+```
+
+`cmd` běží ve složce projektu vedle běhů. Výsledek se objeví v digestu a historii a chyba přijde hned do Telegramu. `prompt` je zadání pro read-only scouta. Jeho nálezy se stanou návrhy `[~]` a platí pro ně limit 10 návrhů. `every` se zadává jako `30m`, `24h` nebo `7d`, výchozí hodnota je `24h`.
 
 Discover z autorunu nečeká na schválení plánu. Všechny návrhy skončí jako `[~]` a schvalují se jednotlivě. Kvóta (`quota_threshold`) brzdí dál. `/status` u každého projektu ukáže, kde je vůči limitům. Démon dál:
 - dotazy k nejasným úkolům posílá hned, odpovídá se reply na zprávu (po `question_timeout_hours` se dotaz přeskočí),

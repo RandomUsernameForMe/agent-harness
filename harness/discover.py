@@ -49,7 +49,7 @@ def proposal_id(project: str, title: str) -> str:
 
 
 def _kind(item: dict, lens: str) -> str:
-    if lens != "fix":
+    if lens not in ("fix", "idle"):  # idle = the project's own scout prompt (projects.yaml), kinds as for fixes
         return {"feature": "feature", "cleanup": "refactor"}[lens]
     return item.get("kind") if item.get("kind") in FIX_KINDS else "debt"
 

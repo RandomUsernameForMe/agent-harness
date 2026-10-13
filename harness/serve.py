@@ -15,7 +15,7 @@ from typing import Callable
 from . import backlog, events, lessons, traces
 from .discover import LENSES, safe_title, task_lines
 from .priority import config_focus, rank
-from .projects import Config
+from .projects import Config, Idle
 from .runner import approvals, execute, questions, resets_at, run_config
 from .telegram import Buttons, TelegramError
 
@@ -63,10 +63,17 @@ class Facts:
     discover: bool
     last_cleanup: float | None  # None = never reviewed
     merged_since_cleanup: int | None
+    idle: Idle | None = None
 
 
-def _due(tried: dict, key: str, now: float) -> bool:
-    return now - tried.get(key, 0) >= RETRY_EVERY
+def _due(tried: dict, key: str, now: float, every: float = RETRY_EVERY) -> bool:
+    return now - tried.get(key, 0) >= every
+
+
+def _idle_due(p: str, f: Facts, now: float, tried: dict) -> bool:
+    """A scout prompt adds proposals, so it respects their limit; a shell command does not."""
+    return f.idle is not None and _due(tried, f"idle:{p}", now, f.idle.every) \
+        and (f.idle.cmd is not None or f.proposals < MAX_PROPOSALS)
 
 
 def _cleanup_due(f: Facts, now: float) -> bool:
@@ -75,7 +82,7 @@ def _cleanup_due(f: Facts, now: float) -> bool:
 
 
 def next_job(facts: dict[str, Facts], now: float, max_tasks: int, tried: dict) -> dict | None:
-    """The next autorun job: queue work first, then a cleanup review, then new proposals."""
+    """The next autorun job: queue work first, then a cleanup review, new proposals, the projects' own idle job."""
     free = {p: MAX_OPEN_PRS - f.open_prs for p, f in facts.items()
             if f.queued and f.open_prs is not None and f.open_prs < MAX_OPEN_PRS}
     if free:
@@ -85,7 +92,9 @@ def next_job(facts: dict[str, Facts], now: float, max_tasks: int, tried: dict) -
             return {"kind": "cleanup", "only": [p]}
     propose = [p for p, f in facts.items()
                if f.discover and f.proposals < MAX_PROPOSALS and _due(tried, f"propose:{p}", now)]
-    return {"kind": "propose", "only": propose} if propose else None
+    if propose:
+        return {"kind": "propose", "only": propose}
+    return next(({"kind": "idle", "only": [p]} for p, f in facts.items() if _idle_due(p, f, now, tried)), None)
 
 
 def why_idle(p: str, f: Facts, now: float) -> str:
@@ -122,6 +131,7 @@ class Ctx:
     store: object = None  # lessons (phase 5); None = feature off
     prs: Callable[[Path], list | None] = lambda path: []  # traces.open_prs in the real serve
     merged: Callable[[Path, float], int | None] = lambda path, ts: 0  # traces.merged_since in the real serve
+    sh: Callable[[str, Path], tuple[bool, str]] = lambda cmd, cwd: (False, "no shell")  # nodes.real.sh in the real serve
     facts: dict = field(default_factory=dict)  # project → Facts of the last autorun check, for /status
 
 
@@ -242,8 +252,22 @@ def _gather_facts(ctx: Ctx) -> dict[str, Facts]:
         ts = last.get(name)
         out[name] = Facts(queued.count(name), None if prs is None else len(prs),
                           sum(t.project == name and t.status == "~" for t in tasks), p.discover,
-                          ts, None if ts is None else ctx.merged(p.path, ts))
+                          ts, None if ts is None else ctx.merged(p.path, ts), p.idle)
     return out
+
+
+def _idle_cmd(ctx: Ctx, name: str, cmd: str) -> None:
+    """The project's own shell job, beside any run (it touches the project's checkout, not a harness worktree).
+    The result lands in the event log, so the digest and the history show it; a failure also goes to Telegram."""
+    run_id = f"idle-{name}-{ctx.now():%Y%m%d-%H%M%S}"
+
+    def job() -> None:
+        ok, out = ctx.sh(cmd, ctx.cfg.projects[name].path)
+        events.log(ctx.conn, run_id, "end", node="idle", worker=name, simulated=ctx.simulated,
+                   delta={"outcome": "ok" if ok else "failed", "cmd": cmd, "last_failure": "" if ok else out[-1500:]})
+        if not ok:
+            say(ctx, f"⚙️ Idle [{name}] `{cmd}` selhal:\n{out[-500:]}")
+    ctx.spawn(job)
 
 
 def _autorun(ctx: Ctx) -> None:
@@ -260,8 +284,11 @@ def _autorun(ctx: Ctx) -> None:
         return
     for p in job["only"]:  # recorded at the start: a crashing discover must not retry every check
         ctx.state["auto_tried"][f"{job['kind']}:{p}"] = now
-    _start_new(ctx, discover=True, only=job["only"], lenses=["cleanup"] if job["kind"] == "cleanup" else None,
-               auto=True)
+    if job["kind"] == "idle" and (cmd := ctx.cfg.projects[job["only"][0]].idle.cmd):
+        _idle_cmd(ctx, job["only"][0], cmd)
+        return
+    lenses = {"cleanup": ["cleanup"], "idle": ["idle"]}.get(job["kind"])
+    _start_new(ctx, discover=True, only=job["only"], lenses=lenses, auto=True)
 
 
 def _resume(ctx: Ctx, run_id: str) -> None:
@@ -449,13 +476,19 @@ def _decide_lesson(ctx: Ctx, ref: str, approve: bool) -> str:
 def digest_text(conn, since: float, backlog_text: str, simulated: bool = False, until: float = float("inf")) -> str:
     runs, tokens, cost, paid = set(), 0, 0.0, 0.0
     tasks: dict[str, dict] = defaultdict(dict)
+    idle: list[str] = []
     for e in events.since(conn, since, simulated, until):
+        if e["node"] == "idle":
+            d = e["delta"] or {}
+            fail = (d.get("last_failure") or "").replace("\n", " ")[-150:]
+            idle.append(f"⚙️ {e['worker']} `{d.get('cmd')}` — " + ("ok" if d.get("outcome") == "ok" else f"selhalo: {fail}"))
+            continue
         runs.add(e["run_id"])
         for u in e["usage"] or []:
             tokens += (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
             cost += u.get("cost_usd") or 0.0
             paid += (u.get("cost_usd") or 0.0) if u.get("billing") == "api" else 0.0
-        if e["worker"] and e["kind"] == "end":
+        if e["worker"] and e["kind"] == "end" and e["node"] != "discover":  # discover's worker is a project
             d = e["delta"] or {}
             tasks[e["worker"]].update({k: d[k] for k in ("outcome", "pr_url", "last_failure") if k in d})
             if e["node"] == "report":
@@ -474,6 +507,7 @@ def digest_text(conn, since: float, backlog_text: str, simulated: bool = False, 
             lines.append(f"⏳ {task_id} — rozpracováno")
     if not tasks:
         lines.append("Žádné úkoly.")
+    lines += idle
     open_tasks = backlog.parse(backlog_text)
     lines.append(f"Tokeny: {tokens}, {traces.cost_label(cost, paid)}")
     lines.append(f"Fronta: {sum(t.status == ' ' for t in open_tasks)} · "

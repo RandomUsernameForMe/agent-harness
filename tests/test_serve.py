@@ -8,7 +8,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from harness import events, serve
 from harness.backlog import parse
-from harness.projects import Serve
+from harness.projects import Idle, Serve
 from harness.simulate import prepare
 from harness.telegram import TelegramError
 
@@ -83,8 +83,8 @@ NOW = NOON.timestamp()
 DAY = 86400
 
 
-def facts(queued=0, prs=0, proposals=0, discover=True, cleanup=NOW, merged=0):
-    return serve.Facts(queued, prs, proposals, discover, cleanup, merged)
+def facts(queued=0, prs=0, proposals=0, discover=True, cleanup=NOW, merged=0, idle=None):
+    return serve.Facts(queued, prs, proposals, discover, cleanup, merged, idle)
 
 
 def test_next_job_queue_waits_for_open_prs():
@@ -589,3 +589,56 @@ def test_dashboard_go_only_selected_projects(tmp_path):
     serve.act(env.ctx, "go", {"projects": ["web"]})
     plan = serve.snapshot(env.ctx)["plan"]["plan"]
     assert plan and {p["project"] for p in plan} == {"web"}
+
+
+
+def test_next_job_idle_last_and_by_its_interval():
+    cmd, scout = Idle("npm run data", None, 3600), Idle(None, "projdi logy", 3600)
+    busy = facts(proposals=10, idle=cmd)
+    assert serve.next_job({"a": busy}, NOW, 3, {}) == {"kind": "idle", "only": ["a"]}
+    assert serve.next_job({"a": busy}, NOW, 3, {"idle:a": NOW - 3000}) is None
+    assert serve.next_job({"a": busy}, NOW, 3, {"idle:a": NOW - 3600})["kind"] == "idle"
+    assert serve.next_job({"a": facts(proposals=10, idle=scout)}, NOW, 3, {}) is None  # a scout adds proposals
+    assert serve.next_job({"a": facts(queued=1, idle=cmd)}, NOW, 3, {})["kind"] == "queue"  # idle comes last
+
+
+def _idle_env(tmp_path, idle, sh=None):
+    env = Env(tmp_path, "go-happy", now=NOON)
+    env.ctx.cfg = replace(env.ctx.cfg, projects={n: replace(p, discover=False, idle=idle if n == "web" else None)
+                                                 for n, p in env.ctx.cfg.projects.items()})
+    env.ctx.backlog_path.write_text("", encoding="utf-8")  # empty queue: autorun falls through to idle
+    if sh:
+        env.ctx.sh = sh
+    return env
+
+
+def test_idle_cmd_runs_in_project_dir_and_failure_reaches_telegram_and_digest(tmp_path):
+    calls = []
+    env = _idle_env(tmp_path, Idle("npm run data", None, 3600),
+                    lambda cmd, cwd: calls.append((cmd, cwd)) or (False, "boom\nERR data source down"))
+    env.tick()
+    assert calls == [("npm run data", env.ctx.cfg.projects["web"].path)]
+    assert any("Idle [web]" in t and "ERR data source down" in t for t in env.bot.texts())
+    env.clock[0] += timedelta(seconds=serve.CHECK_EVERY)
+    env.tick()
+    assert len(calls) == 1  # every: 1 h
+    env.ctx.sh = lambda cmd, cwd: calls.append(cmd) or (True, "")
+    env.clock[0] += timedelta(hours=1)
+    env.tick()
+    assert len(calls) == 2
+    digest = serve.digest_text(env.ctx.conn, 0, "", simulated=True)
+    assert "selhalo: boom ERR data source down" in digest and "`npm run data` \u2014 ok" in digest
+    assert "b\u011bh\u016f: 0" in digest and "\u017d\u00e1dn\u00e9 \u00fakoly." in digest
+
+
+def test_idle_prompt_is_a_scout_whose_findings_land_as_proposals(tmp_path):
+    scenario = tmp_path / "idle.yaml"
+    scenario.write_text("name: idle\ntasks: []\ndiscover:\n  web:\n    idle:\n"
+                        "      - {title: \"Zdroj dat vrac\u00ed 500\", kind: bug, why: log, done: test}\n", encoding="utf-8")
+    env = Env(tmp_path, scenario, now=NOON)
+    env.ctx.cfg = replace(env.ctx.cfg, projects={n: replace(p, discover=False, idle=Idle(None, "projdi logy", 3600))
+                                                 for n, p in env.ctx.cfg.projects.items()})
+    env.tick()
+    assert env.ctx.state["run"]["status"] == "done"
+    [task] = parse(env.sim.backlog_path.read_bytes().decode("utf-8"))
+    assert (task.title, task.kind, task.status) == ("Zdroj dat vrac\u00ed 500", "bug", "~")
