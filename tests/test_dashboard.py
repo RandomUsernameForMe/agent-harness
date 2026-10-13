@@ -358,3 +358,9 @@ def test_usage_prefers_live_quota_and_falls_back_to_sdk_events(tmp_path):
     assert (live["rate_limit"], live["seven_day"]) == (five, week)
     dead = TestClient(create_app(tmp_path, live_quota=lambda: None)).get("/usage").json()
     assert dead["rate_limit"]["status"] == "allowed" and dead["seven_day"] is None
+
+
+def test_history_returns_digest_of_a_day(client):
+    body = client.get("/history?day=2026-10-02").json()
+    assert body["day"] == "2026-10-02" and body["text"].startswith("\U0001F4CB Digest")
+    assert client.get("/history?day=vcera").status_code == 400

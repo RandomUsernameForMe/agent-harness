@@ -8,7 +8,7 @@ import threading
 import time as _time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -22,16 +22,22 @@ from .telegram import Buttons, TelegramError
 POLL_SECONDS = 20
 UNKNOWN_RESET_WAIT = 15 * 60  # rate limit without a reset time: don't hammer it every tick
 ACTIVE = ("running", "waiting", "paused", "approving")
+# autorun: the state of a project decides what runs, not the hour
+MAX_OPEN_PRS = 6  # the queue of a project waits while it has this many open PRs
+MAX_PROPOSALS = 10  # discover proposes while a project has fewer [~]
+RETRY_EVERY = 24 * 3600  # one automatic discover / cleanup attempt per project and day
+CLEANUP_DAYS, CLEANUP_PRS = 14, 10  # cleanup review when the last one is older or this many PRs merged since
+CHECK_EVERY = 5 * 60  # gh is asked about PRs at most this often
 TASK_USAGE = "/task <projekt> <titulek> — přidat úkol (další řádky = popis)"
 HELP = ("Příkazy:\n/status — stav démona\n/queue — fronta úkolů\n/proposals — znovu poslat návrhy ke schválení\n"
-        "/run — spustit běh hned\n/pause, /resume — vypnout/zapnout automatický start\n/digest — přehled teď\n"
+        "/run — spustit běh hned\n/pause, /resume — vypnout/zapnout autorun\n/digest — přehled teď\n"
         f"{TASK_USAGE}\n\n"
         "Na dotaz k nejasnému úkolu odpověz reply na jeho zprávu.")
 
 
 def default_state(now: datetime) -> dict:
     return {"paused": False, "run": None, "seq": 0, "offset": 0, "asked": {}, "answers": {}, "approval": None,
-            "proposals_sent": [], "lessons_sent": [], "rejected_msgs": {},
+            "proposals_sent": [], "lessons_sent": [], "rejected_msgs": {}, "auto_tried": {}, "next_check": 0,
             "last_scan": None, "last_digest": now.date().isoformat(), "digest_since": now.timestamp()}
 
 
@@ -48,15 +54,49 @@ def save_state(path: Path, state: dict) -> None:
     tmp.replace(path)
 
 
-def in_window(t: time, window: tuple[time, time] | None) -> bool:
-    if window is None:
-        return False
-    start, end = window
-    return start <= t < end if start < end else t >= start or t < end
+@dataclass(frozen=True)
+class Facts:
+    """What autorun knows about one project; None = gh failed (the project then waits)."""
+    queued: int
+    open_prs: int | None
+    proposals: int
+    discover: bool
+    last_cleanup: float | None  # None = never reviewed
+    merged_since_cleanup: int | None
 
 
-def fmt_window(window) -> str:
-    return f"{window[0]:%H:%M}–{window[1]:%H:%M}" if window else "žádné (jen /run)"
+def _due(tried: dict, key: str, now: float) -> bool:
+    return now - tried.get(key, 0) >= RETRY_EVERY
+
+
+def _cleanup_due(f: Facts, now: float) -> bool:
+    return f.last_cleanup is None or now - f.last_cleanup > CLEANUP_DAYS * 86400 \
+        or (f.merged_since_cleanup or 0) >= CLEANUP_PRS
+
+
+def next_job(facts: dict[str, Facts], now: float, max_tasks: int, tried: dict) -> dict | None:
+    """The next autorun job: queue work first, then a cleanup review, then new proposals."""
+    free = {p: MAX_OPEN_PRS - f.open_prs for p, f in facts.items()
+            if f.queued and f.open_prs is not None and f.open_prs < MAX_OPEN_PRS}
+    if free:
+        return {"kind": "queue", "only": sorted(free), "max_tasks": min(max_tasks, sum(free.values()))}
+    for p, f in facts.items():
+        if f.discover and _cleanup_due(f, now) and _due(tried, f"cleanup:{p}", now):
+            return {"kind": "cleanup", "only": [p]}
+    propose = [p for p, f in facts.items()
+               if f.discover and f.proposals < MAX_PROPOSALS and _due(tried, f"propose:{p}", now)]
+    return {"kind": "propose", "only": propose} if propose else None
+
+
+def why_idle(p: str, f: Facts, now: float) -> str:
+    """One /status line: the limits of a project as autorun sees them."""
+    prs = "?" if f.open_prs is None else f.open_prs
+    line = f"{p}: fronta {f.queued}, PR {prs}/{MAX_OPEN_PRS}"
+    if f.discover:
+        line += f", návrhy {f.proposals}/{MAX_PROPOSALS}"
+        cleanup = "nikdy" if f.last_cleanup is None else f"před {int((now - f.last_cleanup) // 86400)} d"
+        line += f", cleanup {cleanup}"
+    return line
 
 
 @dataclass
@@ -80,6 +120,9 @@ class Ctx:
     last_error: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)  # main loop vs dashboard requests
     store: object = None  # lessons (phase 5); None = feature off
+    prs: Callable[[Path], list | None] = lambda path: []  # traces.open_prs in the real serve
+    merged: Callable[[Path, float], int | None] = lambda path, ts: 0  # traces.merged_since in the real serve
+    facts: dict = field(default_factory=dict)  # project → Facts of the last autorun check, for /status
 
 
 def say(ctx: Ctx, text: str, buttons: Buttons | None = None) -> int | None:
@@ -176,21 +219,49 @@ def _limits(data: dict) -> dict:
     return out
 
 
-def _start_new(ctx: Ctx, manual: bool = False, discover: bool = False, only: list[str] | None = None,
-               lenses: list[str] | None = None, limits: dict | None = None) -> str:
+def _start_new(ctx: Ctx, discover: bool = False, only: list[str] | None = None,
+               lenses: list[str] | None = None, limits: dict | None = None, auto: bool = False) -> str:
     run = ctx.state["run"]
     if ctx.busy or (run and run["status"] in ACTIVE):
         return "Běh už probíhá nebo čeká — /status."
-    if not manual and (ctx.state["paused"] or not in_window(ctx.now().time(), ctx.cfg.serve.window)
-                       or _quota_reserved(ctx)):
-        return ""
     if not discover and not rank(_tasks(ctx), set(only or ctx.cfg.projects)):
-        return "Fronta je prázdná." if manual else ""
+        return "Fronta je prázdná."
     ctx.state["seq"] += 1
     run_id = f"{'go' if discover else 'run'}-{ctx.now():%Y%m%d-%H%M%S}-s{ctx.state['seq']}"
-    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover, "only": only, "lenses": lenses}
+    _start(ctx, run_id, ctx.new_inputs(run_id) | {"discover": discover, "only": only, "lenses": lenses, "auto": auto}
            | (limits or {}))
     return f"▶️ Spouštím {run_id}."
+
+
+def _gather_facts(ctx: Ctx) -> dict[str, Facts]:
+    tasks, last = _tasks(ctx), events.last_cleanups(ctx.conn, ctx.simulated)
+    queued = [t.project for t in rank(tasks, set(ctx.cfg.projects))]
+    out = {}
+    for name, p in ctx.cfg.projects.items():
+        prs = ctx.prs(p.path)
+        ts = last.get(name)
+        out[name] = Facts(queued.count(name), None if prs is None else len(prs),
+                          sum(t.project == name and t.status == "~" for t in tasks), p.discover,
+                          ts, None if ts is None else ctx.merged(p.path, ts))
+    return out
+
+
+def _autorun(ctx: Ctx) -> None:
+    now = ctx.now().timestamp()
+    if ctx.state["paused"] or now < ctx.state["next_check"] or _quota_reserved(ctx):
+        return
+    ctx.state["next_check"] = now + CHECK_EVERY
+    ctx.facts = _gather_facts(ctx)
+    job = next_job(ctx.facts, now, ctx.cfg.max_tasks_per_run, ctx.state["auto_tried"])
+    if job is None:
+        return
+    if job["kind"] == "queue":
+        _start_new(ctx, only=job["only"], limits={"max_tasks": job["max_tasks"]})
+        return
+    for p in job["only"]:  # recorded at the start: a crashing discover must not retry every check
+        ctx.state["auto_tried"][f"{job['kind']}:{p}"] = now
+    _start_new(ctx, discover=True, only=job["only"], lenses=["cleanup"] if job["kind"] == "cleanup" else None,
+               auto=True)
 
 
 def _resume(ctx: Ctx, run_id: str) -> None:
@@ -218,7 +289,7 @@ def _advance(ctx: Ctx) -> None:
             approval, ctx.state["approval"] = ctx.state["approval"], None
             _start(ctx, run["id"], None, approval)
     else:
-        _start_new(ctx)
+        _autorun(ctx)
 
 
 # --- questions --------------------------------------------------------------------------------------------
@@ -375,10 +446,10 @@ def _decide_lesson(ctx: Ctx, ref: str, approve: bool) -> str:
 
 # --- digest -----------------------------------------------------------------------------------------------
 
-def digest_text(conn, since: float, backlog_text: str, simulated: bool = False) -> str:
+def digest_text(conn, since: float, backlog_text: str, simulated: bool = False, until: float = float("inf")) -> str:
     runs, tokens, cost, paid = set(), 0, 0.0, 0.0
     tasks: dict[str, dict] = defaultdict(dict)
-    for e in events.since(conn, since, simulated):
+    for e in events.since(conn, since, simulated, until):
         runs.add(e["run_id"])
         for u in e["usage"] or []:
             tokens += (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
@@ -418,20 +489,21 @@ def _send_digest(ctx: Ctx) -> None:
 
 
 def _maybe_digest(ctx: Ctx) -> None:
-    window, now = ctx.cfg.serve.window, ctx.now()
-    if window and ctx.state["last_digest"] != now.date().isoformat() \
-            and not in_window(now.time(), window) and now.time() >= window[1]:
+    now = ctx.now()
+    if ctx.state["last_digest"] != now.date().isoformat() and now.time() >= ctx.cfg.serve.digest_at:
         _send_digest(ctx)
 
 
+def history(conn, day: str, backlog_text: str, simulated: bool = False) -> str:
+    """Digest of one calendar day (YYYY-MM-DD), for browsing what autorun did."""
+    start = datetime.fromisoformat(day)
+    return digest_text(conn, start.timestamp(), backlog_text, simulated, (start + timedelta(days=1)).timestamp())
+
+
 def _maybe_scan(ctx: Ctx) -> None:
-    now, window = ctx.now(), ctx.cfg.serve.window
-    if not ctx.cfg.serve.scan or not in_window(now.time(), window):
-        return
-    # once per window: a 22:00–07:00 window started yesterday when it is 01:00
-    opened = (now.date() if now.time() >= window[0] else now.date() - timedelta(days=1)).isoformat()
-    if ctx.state["last_scan"] != opened:
-        ctx.state["last_scan"] = opened
+    today = ctx.now().date().isoformat()
+    if ctx.cfg.serve.scan and ctx.state["last_scan"] != today:
+        ctx.state["last_scan"] = today
         try:
             ctx.scan()
         except Exception as e:
@@ -442,9 +514,7 @@ def _maybe_scan(ctx: Ctx) -> None:
 
 def _status(ctx: Ctx) -> str:
     run, tasks = ctx.state["run"], _tasks(ctx)
-    window = ctx.cfg.serve.window
-    lines = [f"Automatika: {'vypnutá' if ctx.state['paused'] else 'zapnutá'} · okno {fmt_window(window)}"
-             + (" (teď v okně)" if in_window(ctx.now().time(), window) else "")]
+    lines = [f"Autorun: {'vypnutý' if ctx.state['paused'] else 'zapnutý'}"]
     if run:
         line = f"Běh: {run['id']} — {'running' if ctx.busy else run['status']}"
         if run["status"] == "paused" and not ctx.busy:
@@ -454,6 +524,8 @@ def _status(ctx: Ctx) -> str:
         lines.append("Běh: žádný")
     lines.append(f"Fronta: {len(rank(tasks, set(ctx.cfg.projects)))} · návrhy: {sum(t.status == '~' for t in tasks)}"
                  f" · Dotazy: {sum(1 for i in ctx.state['asked'] if i not in ctx.state['answers'])}")
+    now = ctx.now().timestamp()
+    lines += [why_idle(p, f, now) for p, f in ctx.facts.items()]
     return "\n".join(lines)
 
 
@@ -475,13 +547,14 @@ def _command(ctx: Ctx, cmd: str) -> str:
         ctx.state["proposals_sent"] = [i for i in ctx.state["proposals_sent"] if i not in pending]
         return f"Posílám {len(pending)} návrh(ů)." if pending else "Žádné návrhy ke schválení."
     if cmd == "run":
-        return _start_new(ctx, manual=True)
+        return _start_new(ctx)
     if cmd == "pause":
         ctx.state["paused"] = True
-        return "⏸ Automatický start vypnut. Běžící běh doběhne."
+        return "⏸ Autorun vypnut. Běžící běh doběhne."
     if cmd == "resume":
         ctx.state["paused"] = False
-        return f"▶️ Automatický start zapnut, okno {fmt_window(ctx.cfg.serve.window)}."
+        ctx.state["next_check"] = 0
+        return "▶️ Autorun zapnut."
     if cmd == "digest":
         _send_digest(ctx)
         return ""
@@ -543,8 +616,8 @@ def snapshot(ctx: Ctx) -> dict:
         _collect(ctx)
         run, config = ctx.state["run"], _open(ctx)
         plans = approvals(ctx.app, config) if config and not ctx.state["approval"] else []
-        return {"paused": ctx.state["paused"], "window": fmt_window(ctx.cfg.serve.window),
-                "in_window": in_window(ctx.now().time(), ctx.cfg.serve.window),
+        now = ctx.now().timestamp()
+        return {"paused": ctx.state["paused"], "limits": [why_idle(p, f, now) for p, f in ctx.facts.items()],
                 "run": run and {**run, "status": "running" if ctx.busy else run["status"]},
                 "questions": [q | {"answered": q["id"] in ctx.state["answers"]}
                               for q in (questions(ctx.app, config) if config else [])],
@@ -577,7 +650,7 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
     with ctx.lock:
         _collect(ctx)
         if action in ("run", "go"):
-            reply = _start_new(ctx, manual=True, discover=action == "go", only=_only(ctx, data.get("projects")),
+            reply = _start_new(ctx, discover=action == "go", only=_only(ctx, data.get("projects")),
                                lenses=_lenses(data.get("lenses")), limits=_limits(data))
         elif action in ("approve", "reject"):
             reply = _decide(ctx, str(data.get("task")), action == "approve", str(data.get("reason") or ""))

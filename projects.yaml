@@ -10,8 +10,8 @@ max_parallel: 2
 plan_model: sonnet
 # fokus: kolik záznamů v Thoughts/ a Inbox/ za posledních 14 dní zmiňuje projekt → rozhoduje remízy priorit
 secondbrain: {path: ../secondbrain, days: 14}
-# harness serve: automatický start jen v okně (mimo něj /run z Telegramu), sken TODO 1× denně na začátku okna
-serve: {window: "22:00-07:00", question_timeout_hours: 24, scan: true}
+# harness serve: autorun kdykoli v limitech (serve.py), digest do Telegramu 1× denně v digest_at, sken TODO 1× denně
+serve: {digest_at: "07:00", question_timeout_hours: 24, scan: true}
 
 projects:
   guth-pictures:

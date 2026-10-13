@@ -76,11 +76,16 @@ Discover (lensy fix a feature) ke každému návrhu přidá `accept`, příkaz, 
 
     .venv/Scripts/harness serve
 
-Jde o jeden proces: Telegram bot (long polling, nepotřebuje veřejnou URL) a plánovač. Běhy se automaticky spouštějí jen v okně `serve.window` z `projects.yaml` (`22:00-07:00`), mimo něj jen přes `/run`. Démon pracuje takto:
+Jde o jeden proces: Telegram bot (long polling, nepotřebuje veřejnou URL) a plánovač. Autorun běží kdykoli, nejen v noci. Co spustí, určuje stav projektu (limity jsou konstanty v `harness/serve.py`, kontrola nejvýš jednou za 5 minut):
+1. frontu projektu zpracuje, jen když má projekt méně než 6 otevřených PR,
+2. cleanup review pustí, když poslední proběhl před víc než 14 dny, od té doby se mergnulo aspoň 10 PR, nebo ještě nikdy neproběhl,
+3. nové úkoly navrhuje, jen když má projekt méně než 10 návrhů `[~]`, nejvýš jednou za 24 h.
+
+Discover z autorunu nečeká na schválení plánu. Všechny návrhy skončí jako `[~]` a schvalují se jednotlivě. Kvóta (`quota_threshold`) brzdí dál. `/status` u každého projektu ukáže, kde je vůči limitům. Démon dál:
 - dotazy k nejasným úkolům posílá hned, odpovídá se reply na zprávu (po `question_timeout_hours` se dotaz přeskočí),
 - návrhy `[~]` posílá s tlačítky ✅/❌,
-- po konci okna pošle denní digest (PR, chyby, tokeny),
-- jednou denně na začátku okna spustí `scan`,
+- jednou denně v `serve.digest_at` (výchozí `07:00`) pošle digest (PR, chyby, tokeny). Digest libovolného dne je v dashboardu v panelu Historie autorunu,
+- jednou denně spustí `scan`,
 - po rate limitu sám pokračuje,
 - po restartu naváže na rozběhnutý běh,
 - když běh spadne, vypne automatiku a pošle zprávu (zapne se příkazem `/resume`).
@@ -103,7 +108,7 @@ Stav démona se ukládá do `serve_state.json` (je v gitignore).
 - návrhy `[~]` s ✅/❌,
 - kvótu subscription a tokeny a cenu po dnech.
 
-Tlačítka spustí frontu (`run`) nebo `harness go` a plán z `go` se tam i schvaluje. Chipy projektů pod hlavičkou omezí obě akce na vybrané projekty (výběr si pamatuje prohlížeč). Automatika v okně dál bere všechny projekty a discover pouští jen `harness go`. U PR je stav CI a tlačítko Merge (dvě kliknutí): draft označí jako ready, udělá squash merge a smaže větev a worktree harnessu. Pozastavují automatiku a odpovídají na dotazy. Akce jdou přes hlavní smyčku serve, takže nikdy neběží dva běhy naráz.
+Tlačítka spustí frontu (`run`) nebo `harness go` a plán z `go` se tam i schvaluje. Chipy projektů pod hlavičkou omezí obě akce na vybrané projekty (výběr si pamatuje prohlížeč). Autorun chipy ignoruje a řídí se limity projektů. U PR je stav CI a tlačítko Merge (dvě kliknutí): draft označí jako ready, udělá squash merge a smaže větev a worktree harnessu. Pozastavují automatiku a odpovídají na dotazy. Akce jdou přes hlavní smyčku serve, takže nikdy neběží dva běhy naráz.
 
 Tapeta: [Lively Wallpaper](https://github.com/rocksdanister/lively) (`winget install rocksdanister.LivelyWallpaper`), tapeta typu URL na `/desktop`. Kliká se na odkryté ploše (Win+D). Psaní odpovědí vyžaduje v Lively nastavení „Input → Mouse & Keyboard“.
 

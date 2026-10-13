@@ -79,20 +79,22 @@ def test_max_parallel_must_be_positive(tmp_path):
 
 def test_serve_defaults(tmp_path):
     from harness.projects import Serve
-    assert load_config(write(tmp_path, "projects: {}\n")).serve == Serve(None, 24, True)
-
-
-def test_serve_window_parsed(tmp_path):
     from datetime import time
-    cfg = load_config(write(tmp_path, 'serve: {window: "22:00-07:30", question_timeout_hours: 2, scan: false}\nprojects: {}\n'))
-    assert cfg.serve.window == (time(22, 0), time(7, 30))
-    assert (cfg.serve.question_timeout_hours, cfg.serve.scan) == (2, False)
+    assert load_config(write(tmp_path, "projects: {}\n")).serve == Serve(time(7), 24, True)
 
 
-@pytest.mark.parametrize("window", ["22-07", "25:00-07:00", "07:00-07:00"])
-def test_serve_bad_window_raises(tmp_path, window):
-    with pytest.raises(ValueError, match="serve.window"):
-        load_config(write(tmp_path, f'serve: {{window: "{window}"}}\nprojects: {{}}\n'))
+def test_serve_parsed_and_old_window_ignored(tmp_path, capsys):
+    from datetime import time
+    cfg = load_config(write(tmp_path, 'serve: {window: "22:00-07:00", digest_at: "8:30", question_timeout_hours: 2, '
+                                      'scan: false}\nprojects: {}\n'))
+    assert (cfg.serve.digest_at, cfg.serve.question_timeout_hours, cfg.serve.scan) == (time(8, 30), 2, False)
+    assert "serve.window is ignored" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("at", ["7", "25:00", "07:00-08:00"])
+def test_serve_bad_digest_at_raises(tmp_path, at):
+    with pytest.raises(ValueError, match="serve.digest_at"):
+        load_config(write(tmp_path, f'serve: {{digest_at: "{at}"}}\nprojects: {{}}\n'))
 
 
 def test_harness_edits_itself_except_safeguards():

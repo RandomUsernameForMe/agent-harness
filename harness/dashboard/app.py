@@ -301,6 +301,14 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
         path = sims[sim].backlog_path if sim in sims else home / "BACKLOG.md"
         return [asdict(t) for t in backlog.parse(backlog.read(path))]
 
+    @app.get("/history")
+    def get_history(day: str):
+        try:
+            text = serve.history(conn, day, backlog.read(home / "BACKLOG.md"))
+        except ValueError:
+            raise HTTPException(400, f"day must be YYYY-MM-DD, got {day!r}") from None
+        return {"day": day, "text": text}
+
     @app.get("/runs/{run_id}/calls")
     def run_calls(run_id: str):
         return traces.calls(conn, run_id)

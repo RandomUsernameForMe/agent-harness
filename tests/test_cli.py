@@ -99,7 +99,7 @@ def test_serve_without_telegram_runs_dashboard_only(tmp_path, monkeypatch, capsy
 
 def test_serve_starts_and_stops_cleanly(tmp_path, monkeypatch, capsys):
     from harness import serve
-    (tmp_path / "projects.yaml").write_text('serve: {window: "22:00-07:00"}\nprojects: {}\n', encoding="utf-8")
+    (tmp_path / "projects.yaml").write_text('serve: {digest_at: "07:00"}\nprojects: {}\n', encoding="utf-8")
     monkeypatch.setenv("HARNESS_TELEGRAM_TOKEN", "T")
     monkeypatch.setenv("HARNESS_TELEGRAM_CHAT_ID", "42")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -112,7 +112,7 @@ def test_serve_starts_and_stops_cleanly(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(serve, "loop", stop)
     assert main(["--home", str(tmp_path), "serve"]) == 0
     assert sent and sent[0][0] == 42
-    assert "22:00–07:00" in capsys.readouterr().out
+    assert "autorun" in capsys.readouterr().out
     assert (tmp_path / "serve_state.json").exists()
 
 
