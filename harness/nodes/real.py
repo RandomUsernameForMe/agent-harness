@@ -219,7 +219,7 @@ def real_explore(cfg: Config) -> Callable[[str, list[Task], str], tuple[str, dic
                                verify="\n".join(f"  {c}" for c in p.verify),
                                known="\n".join(f"  [{t.status}] {t.title}" for t in known) or "  (none)",
                                notes=notes or "(none)", lessons=lessons_block(name),
-                               recent=recent_block(p, wt))
+                               recent=recent_block(p, wt), instructions=p.idle.prompt if p.idle else "")
         r = run_agent(prompt, cwd=wt, model="opus", tools=READ_TOOLS, permission_mode="dontAsk", max_turns=40)
         return r.text, _agent_out("discover", r)
     return explore

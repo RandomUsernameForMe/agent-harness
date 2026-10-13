@@ -8,6 +8,16 @@ import yaml
 
 REQUIRED = ("path", "base", "verify")
 TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*$")
+EVERY_RE = re.compile(r"^\s*(\d+)\s*([mhd])\s*$")
+UNIT = {"m": 60, "h": 3600, "d": 86400}
+
+
+@dataclass(frozen=True)
+class Idle:
+    """What the harness runs for a project when autorun has nothing else to do: a shell command or a scout prompt."""
+    cmd: str | None
+    prompt: str | None
+    every: int  # seconds
 
 
 @dataclass(frozen=True)
@@ -22,6 +32,7 @@ class Project:
     max_diff_lines: int
     weight: int = 0
     discover: bool = True  # false: `go` discover and the marker scan skip it (tasks only from reflection / by hand)
+    idle: Idle | None = None
 
 
 @dataclass(frozen=True)
@@ -92,4 +103,14 @@ def _project(name: str, spec: dict, defaults: dict, root: Path) -> Project:
         max_diff_lines=spec.get("max_diff_lines", defaults.get("max_diff_lines", 800)),
         weight=spec.get("weight", 0),
         discover=spec.get("discover", True),
+        idle=_idle(name, spec["idle"]) if spec.get("idle") else None,
     )
+
+
+def _idle(name: str, raw: dict) -> Idle:
+    if not isinstance(raw, dict) or bool(raw.get("cmd")) == bool(raw.get("prompt")):
+        raise ValueError(f"project {name}: idle needs exactly one of cmd / prompt")
+    m = EVERY_RE.match(str(raw.get("every", "24h")))
+    if not m or int(m[1]) == 0:
+        raise ValueError(f"project {name}: idle.every must look like 30m, 24h or 7d, got {raw.get('every')!r}")
+    return Idle(raw.get("cmd"), raw.get("prompt"), int(m[1]) * UNIT[m[2]])
