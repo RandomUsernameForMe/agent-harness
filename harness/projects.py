@@ -1,4 +1,5 @@
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import time
 from pathlib import Path
@@ -6,7 +7,7 @@ from pathlib import Path
 import yaml
 
 REQUIRED = ("path", "base", "verify")
-WINDOW_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$")
+TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*$")
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,7 @@ class Project:
 
 @dataclass(frozen=True)
 class Serve:
-    window: tuple[time, time] | None = None  # None = no automatic start, only /run
+    digest_at: time = time(7)  # daily Telegram digest of the last 24 h
     question_timeout_hours: float = 24
     scan: bool = True
 
@@ -62,20 +63,18 @@ def load_config(path: Path) -> Config:
                   max_parallel, secondbrain, _serve(raw.get("serve") or {}), raw.get("plan_model", "opus"))
 
 
-def _window(text: str) -> tuple[time, time]:
-    m = WINDOW_RE.match(str(text))
+def _time(text: str) -> time:
+    m = TIME_RE.match(str(text))
     try:
-        start, end = time(int(m[1]), int(m[2])), time(int(m[3]), int(m[4]))
+        return time(int(m[1]), int(m[2]))
     except (TypeError, ValueError):  # no match / hour 25
-        raise ValueError(f"serve.window must look like 22:00-07:00, got {text!r}") from None
-    if start == end:
-        raise ValueError(f"serve.window is empty: {text!r}")
-    return start, end
+        raise ValueError(f"serve.digest_at must look like 07:00, got {text!r}") from None
 
 
 def _serve(raw: dict) -> Serve:
-    return Serve(_window(raw["window"]) if raw.get("window") else None,
-                 raw.get("question_timeout_hours", 24), raw.get("scan", True))
+    if "window" in raw:
+        print("projects.yaml: serve.window is ignored, autorun runs any time (limits in serve.py)", file=sys.stderr)
+    return Serve(_time(raw.get("digest_at", "07:00")), raw.get("question_timeout_hours", 24), raw.get("scan", True))
 
 
 def _project(name: str, spec: dict, defaults: dict, root: Path) -> Project:

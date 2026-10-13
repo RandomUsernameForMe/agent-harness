@@ -281,6 +281,7 @@
     <section><h2>Kvóta subscription</h2><div id="quota" class="muted">bez dat — žádný běh zatím nenahlásil využití</div></section>
     <section class="chart"><h2>Tokeny po dnech (14 dní)</h2><div id="chart"></div><div id="cost" class="muted"></div></section>
     <section id="lessonsBox" hidden><h2>Lekce z reflexe</h2><div id="lessons"></div></section>
+    <section><h2>Historie autorunu</h2><input type="date" id="historyDay"><pre id="history" class="muted"></pre></section>
   </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -430,8 +431,8 @@ function renderStatus(s) {
   const run = s.run;
   $("status").innerHTML = `<span class="dot ${run ? run.status : ""}"></span>
     <span>${run ? `${esc(run.id)} — <b>${esc(RUN_STATUS[run.status] || run.status)}</b>` : "žádný běh"}</span>
-    <span class="muted">· automatický start v okně ${esc(s.window)}${s.in_window ? " (teď)" : ""}: <b>${s.paused ? "vypnutý" : "zapnutý"}</b></span>
-    <button class="small" id="auto" title="Jen automatické spouštění fronty v nočním okně. Běžící běh nezastaví, ruční tlačítka fungují vždy.">${s.paused ? "Zapnout" : "Vypnout"}</button>`;
+    <span class="muted" title="${esc(s.limits.join("\n"))}">· autorun: <b>${s.paused ? "vypnutý" : "zapnutý"}</b></span>
+    <button class="small" id="auto" title="Automatické spouštění fronty, návrhů a cleanup review v limitech projektu. Běžící běh nezastaví, ruční tlačítka fungují vždy.">${s.paused ? "Zapnout" : "Vypnout"}</button>`;
   $("auto").onclick = () => act(s.paused ? "resume" : "pause");
 }
 
@@ -707,6 +708,14 @@ async function refresh() {
 async function refreshUsage() {
   try { renderUsage(await (await fetch("/usage")).json()); } catch (e) {}
 }
+
+async function loadHistory() {
+  try { $("history").textContent = (await (await fetch(`/history?day=${$("historyDay").value}`)).json()).text; }
+  catch (e) { $("history").textContent = "historie nedostupná"; }
+}
+$("historyDay").value = new Date().toLocaleDateString("sv");  // sv locale = YYYY-MM-DD in local time
+$("historyDay").onchange = loadHistory;
+loadHistory();
 
 function setMode(cls, on) {
   // parody skin and blur are per-viewer looks: body class + localStorage, no server state

@@ -102,7 +102,7 @@ def make_prioritize(backlog_path: Path, cfg: Config,
         with backlog.LOCK:
             tasks = backlog.parse(backlog.read(backlog_path))
         cands = candidates(state.get("proposals") or [], tasks, set(state.get("only") or cfg.projects))
-        if not cands:
+        if not cands or state.get("auto"):
             return {"plan": []}
         n, focus = state.get("max_tasks", cfg.max_tasks_per_run), config_focus(cfg)
         try:

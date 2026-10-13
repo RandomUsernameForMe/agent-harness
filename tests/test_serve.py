@@ -42,14 +42,14 @@ class FakeBot:
 
 
 class Env:
-    def __init__(self, tmp_path, scenario, now=NIGHT, window=(time(22), time(7)), timeout=24, scan=None):
+    def __init__(self, tmp_path, scenario, now=NIGHT, auto=True, timeout=24, scan=None):
         path = scenario if isinstance(scenario, Path) else SCENARIOS / f"{scenario}.yaml"
         self.sim = prepare(path, tmp_path, InMemorySaver(), delay=0)
         self.clock = [now]
         self.bot = FakeBot()
         self.scans = []
-        cfg = replace(self.sim.cfg, serve=Serve(window, timeout, scan is not None))
-        state = serve.default_state(now) | {"digest_since": 0}
+        cfg = replace(self.sim.cfg, serve=Serve(time(7), timeout, scan is not None))
+        state = serve.default_state(now) | {"digest_since": 0, "paused": not auto}
         self.ctx = serve.Ctx(cfg=cfg, bot=self.bot, app=self.sim.app, backlog_path=self.sim.backlog_path,
                              conn=events.connect(tmp_path / "h.db"), new_inputs=lambda rid: self.sim.inputs | {"run_id": rid},
                              state=state, spawn=lambda f: f(), now=lambda: self.clock[0],
@@ -79,36 +79,75 @@ class Env:
         return [m for m in self.bot.sent if m["text"].startswith("❓")]
 
 
-def test_in_window():
-    night = (time(22), time(7))
-    assert serve.in_window(time(23), night) and serve.in_window(time(6, 59), night)
-    assert not serve.in_window(time(7), night) and not serve.in_window(time(12), night)
-    day = (time(9), time(17))
-    assert serve.in_window(time(9), day) and not serve.in_window(time(17), day)
-    assert not serve.in_window(time(12), None)
+NOW = NOON.timestamp()
+DAY = 86400
 
 
-def test_auto_start_in_window_runs_quietly(tmp_path):
-    env = Env(tmp_path, "happy-path")
+def facts(queued=0, prs=0, proposals=0, discover=True, cleanup=NOW, merged=0):
+    return serve.Facts(queued, prs, proposals, discover, cleanup, merged)
+
+
+def test_next_job_queue_waits_for_open_prs():
+    assert serve.next_job({"a": facts(queued=3, prs=6, discover=False)}, NOW, 3, {}) is None
+    assert serve.next_job({"a": facts(queued=3, prs=None, discover=False)}, NOW, 3, {}) is None  # gh failed
+    job = serve.next_job({"a": facts(queued=3, prs=5), "b": facts(queued=1, prs=6)}, NOW, 3, {})
+    assert job == {"kind": "queue", "only": ["a"], "max_tasks": 1}
+
+
+def test_next_job_proposes_below_limit_once_a_day():
+    assert serve.next_job({"a": facts(proposals=9), "b": facts(proposals=10)}, NOW, 3, {}) == \
+        {"kind": "propose", "only": ["a"]}
+    assert serve.next_job({"a": facts()}, NOW, 3, {"propose:a": NOW - DAY + 60}) is None
+    assert serve.next_job({"a": facts()}, NOW, 3, {"propose:a": NOW - DAY})["kind"] == "propose"
+    assert serve.next_job({"a": facts(discover=False)}, NOW, 3, {}) is None
+
+
+@pytest.mark.parametrize("cleanup,merged,due", [(None, None, True), (NOW - 15 * DAY, 0, True), (NOW - DAY, 10, True),
+                                                (NOW - 13 * DAY, 9, False)])
+def test_next_job_cleanup_after_two_weeks_or_ten_prs(cleanup, merged, due):
+    job = serve.next_job({"a": facts(proposals=10, cleanup=cleanup, merged=merged)}, NOW, 3, {})
+    assert job == ({"kind": "cleanup", "only": ["a"]} if due else None)
+    assert serve.next_job({"a": facts(proposals=10, cleanup=None)}, NOW, 3, {"cleanup:a": NOW - 60}) is None
+
+
+def test_autorun_starts_any_time_and_runs_quietly(tmp_path):
+    env = Env(tmp_path, "happy-path", now=NOON)
     env.tick()
     assert env.statuses() == {"sim-01": "x"}
     assert env.ctx.state["run"]["status"] == "done"
     assert env.bot.sent == []  # results go to the digest, not straight to the phone
     env.tick()
-    assert len(events.runs(env.ctx.conn)) == 1  # empty queue → no new run
+    assert len(events.runs(env.ctx.conn)) == 1  # the next check waits CHECK_EVERY
 
 
-def test_outside_window_only_manual_run(tmp_path):
+def test_autorun_holds_queue_at_six_open_prs(tmp_path):
     env = Env(tmp_path, "happy-path", now=NOON)
+    env.ctx.prs = lambda path: [{}] * 6
     env.tick()
     assert env.statuses() == {"sim-01": " "}
-    env.tick(env.msg("/run"))
+    env.tick(env.msg("/status"))
+    assert "PR 6/6" in env.bot.texts()[-1]
+    env.tick(env.msg("/run"))  # manual run ignores the limits
     assert env.statuses() == {"sim-01": "x"}
-    assert any("Spouštím" in t for t in env.bot.texts())
 
 
-def test_no_window_means_no_auto_start(tmp_path):
-    env = Env(tmp_path, "happy-path", window=None)
+def test_autorun_discover_skips_plan_approval(tmp_path):
+    env = Env(tmp_path, "go-happy", now=NOON)
+    env.ctx.prs = lambda path: [{}] * 6  # queue blocked → cleanup review (never done), then proposals
+    proposals = lambda: {k: v for k, v in env.statuses().items() if k != "sim-01"}
+    for kind in ("cleanup:demo", "cleanup:web", "propose:demo"):
+        env.tick()
+        env.clock[0] += timedelta(seconds=serve.CHECK_EVERY)
+        assert env.ctx.state["run"]["status"] == "done"  # no plan approval interrupt
+        assert kind in env.ctx.state["auto_tried"]
+    assert set(proposals().values()) == {"~"} and len(proposals()) == 4
+    assert sum(t.startswith("💡 Návrh") for t in env.bot.texts()) == 4
+    env.tick()
+    assert len(events.runs(env.ctx.conn)) == 3  # everything tried today
+
+
+def test_no_auto_start_when_paused(tmp_path):
+    env = Env(tmp_path, "happy-path", auto=False)
     env.tick()
     assert env.statuses() == {"sim-01": " "}
 
@@ -187,7 +226,7 @@ def test_answer_waits_while_run_thread_busy(tmp_path):
 
 
 def test_proposals_sent_once_then_approved_and_rejected(tmp_path):
-    env = Env(tmp_path, "happy-path", window=None)
+    env = Env(tmp_path, "happy-path", auto=False)
     with env.sim.backlog_path.open("a", encoding="utf-8") as f:
         f.write("## demo2\n- [~] P3 p-1 TODO: jedna\n  Popis návrhu.\n- [~] P3 p-2 TODO: dva\n")
     env.tick()
@@ -209,7 +248,7 @@ def test_proposals_sent_once_then_approved_and_rejected(tmp_path):
 
 
 def test_proposals_command_resends(tmp_path):
-    env = Env(tmp_path, "happy-path", window=None)
+    env = Env(tmp_path, "happy-path", auto=False)
     with env.sim.backlog_path.open("a", encoding="utf-8") as f:
         f.write("## demo2\n- [~] P3 p-1 TODO: jedna\n")
     env.tick()
@@ -217,7 +256,7 @@ def test_proposals_command_resends(tmp_path):
     assert len([m for m in env.bot.sent if m["text"].startswith("💡")]) == 2
 
 
-def test_digest_once_after_window(tmp_path):
+def test_digest_once_a_day_at_digest_at(tmp_path):
     env = Env(tmp_path, "happy-path")
     env.tick()
     env.clock[0] = datetime(2026, 10, 3, 6, 0)
@@ -229,6 +268,15 @@ def test_digest_once_after_window(tmp_path):
     [digest] = [t for t in env.bot.texts() if t.startswith("📋")]
     assert "✅ sim-01 → https://example.invalid/sim/sim-01" in digest
     assert "Fronta: 0" in digest
+
+
+def test_history_is_the_digest_of_one_day(tmp_path):
+    env = Env(tmp_path, "happy-path")
+    env.tick()  # events carry wall-clock time, not the fake clock
+    today = datetime.now().date()
+    assert "✅ sim-01" in serve.history(env.ctx.conn, today.isoformat(), "", simulated=True)
+    yesterday = (today - timedelta(days=1)).isoformat()
+    assert "Žádné úkoly." in serve.history(env.ctx.conn, yesterday, "", simulated=True)
 
 
 def test_digest_text_reports_failures_and_unclear(tmp_path):
@@ -267,7 +315,7 @@ def test_restart_resumes_interrupted_run(tmp_path):
 
 
 def test_foreign_chat_ignored(tmp_path):
-    env = Env(tmp_path, "happy-path", now=NOON)
+    env = Env(tmp_path, "happy-path", auto=False)
     env.tick(env.msg("/run", chat=999))
     assert env.statuses() == {"sim-01": " "} and env.bot.sent == []
 
@@ -301,11 +349,11 @@ def test_status_and_help(tmp_path):
     env.tick()
     env.tick(env.msg("/status"), env.msg("/nesmysl"))
     status, help_text = env.bot.texts()[-2:]
-    assert "22:00–07:00" in status and "waiting" in status and "Dotazy: 1" in status
+    assert "Autorun: zapnutý" in status and "waiting" in status and "Dotazy: 1" in status
     assert "/status" in help_text
 
 
-def test_daily_scan_in_window_once(tmp_path):
+def test_daily_scan_once(tmp_path):
     env = Env(tmp_path, "happy-path", scan=lambda: env.scans.append(1) or 0)
     env.tick()
     env.tick()
@@ -374,7 +422,7 @@ def test_run_finishing_mid_tick_is_collected_not_restarted(tmp_path):
 
 
 def test_unexpected_error_in_tick_is_reported_once_and_loop_survives(tmp_path, monkeypatch):
-    env = Env(tmp_path, "happy-path", window=None)
+    env = Env(tmp_path, "happy-path", auto=False)
     env.sim.backlog_path.write_text("## demo\n- [ ] P1 d-1 A\n- [ ] P1 d-1 B\n", encoding="utf-8")  # duplicate id
     calls = []
 
@@ -392,7 +440,7 @@ def test_unexpected_error_in_tick_is_reported_once_and_loop_survives(tmp_path, m
 
 
 def test_state_saved_even_when_tick_fails(tmp_path):
-    env = Env(tmp_path, "happy-path", window=None)
+    env = Env(tmp_path, "happy-path", auto=False)
     env.ctx.state_path = tmp_path / "serve_state.json"
     env.sim.backlog_path.write_text("## demo\n- [ ] P1 d-1 A\n- [ ] P1 d-1 B\n", encoding="utf-8")
     with pytest.raises(ValueError):
@@ -400,13 +448,13 @@ def test_state_saved_even_when_tick_fails(tmp_path):
     assert serve.load_state(env.ctx.state_path, NIGHT)["offset"] == 2  # the update is not delivered again
 
 
-def test_scan_once_per_window_across_midnight(tmp_path):
+def test_scan_once_per_calendar_day(tmp_path):
     env = Env(tmp_path, "happy-path", scan=lambda: env.scans.append(1) or 0)
     env.tick()
-    env.clock[0] = datetime(2026, 10, 3, 1, 0)
+    env.clock[0] = datetime(2026, 10, 2, 23, 59)
     env.tick()
     assert env.scans == [1]
-    env.clock[0] = datetime(2026, 10, 3, 22, 0)
+    env.clock[0] = datetime(2026, 10, 3, 0, 1)
     env.tick()
     assert env.scans == [1, 1]
 
@@ -468,7 +516,7 @@ def test_dashboard_pause_resume(tmp_path):
 def test_lessons_sent_and_decided_from_telegram_and_dashboard(tmp_path):
     from langgraph.store.memory import InMemoryStore
     from harness import lessons
-    env = Env(tmp_path, "happy-path", window=None)
+    env = Env(tmp_path, "happy-path", auto=False)
     env.ctx.store = store = InMemoryStore()
     a = lessons.propose(store, "demo", "Lekce A", [])
     b = lessons.propose(store, "demo", "Lekce B", [])
@@ -485,7 +533,7 @@ def test_lessons_sent_and_decided_from_telegram_and_dashboard(tmp_path):
 
 
 def test_dashboard_reject_with_reason(tmp_path):
-    env = Env(tmp_path, "happy-path", window=None)
+    env = Env(tmp_path, "happy-path", auto=False)
     with env.sim.backlog_path.open("a", encoding="utf-8") as f:
         f.write("## demo2\n- [~] P3 p-1 Návrh\n")
     assert serve.act(env.ctx, "reject", {"task": "p-1", "reason": "  mimo\n fokus "}) == "zamítnuto"
