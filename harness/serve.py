@@ -28,6 +28,7 @@ MAX_PROPOSALS = 10  # discover proposes while a project has fewer [~]
 RETRY_EVERY = 24 * 3600  # one automatic discover / cleanup attempt per project and day
 CLEANUP_DAYS, CLEANUP_PRS = 14, 10  # cleanup review when the last one is older or this many PRs merged since
 CHECK_EVERY = 5 * 60  # gh is asked about PRs at most this often
+AUTORUN_QUOTA_CAP = 0.85  # no automatic start while the 5h or weekly window is at or above this
 TASK_USAGE = "/task <projekt> <titulek> — přidat úkol (další řádky = popis)"
 HELP = ("Příkazy:\n/status — stav démona\n/queue — fronta úkolů\n/proposals — znovu poslat návrhy ke schválení\n"
         "/run — spustit běh hned\n/pause, /resume — vypnout/zapnout autorun\n/digest — přehled teď\n"
@@ -190,15 +191,22 @@ def _collect(ctx: Ctx) -> None:
     ctx.state["run"] = run
 
 
+def _over(info: dict | None, limit: float, now: float, window: float) -> bool:
+    if info is None or info["utilization"] < limit:
+        return False
+    return now < (info.get("resets_at") or info.get("ts", now) + window)
+
+
 def _quota_reserved(ctx: Ctx) -> bool:
     """A run stops at quota_threshold, but its quota dies with it: without this a new run would start on the
-    next tick and eat the owner's reserve. Hold automatic starts until that window resets."""
+    next tick and eat the owner's reserve. Hold automatic starts until that window resets; either window at
+    AUTORUN_QUOTA_CAP holds them regardless of quota_threshold."""
     now = ctx.now().timestamp()
+    live = ctx.live_quota() or {}
     # live endpoint first: the SDK reports utilization only near the limit, so its last value may be stale
-    info = (ctx.live_quota() or {}).get("five_hour") or events.latest_utilization(ctx.conn, ctx.simulated)
-    if info is None or info["utilization"] < ctx.cfg.quota_threshold:
-        return False
-    return now < (info.get("resets_at") or info.get("ts", now) + 5 * 3600)
+    five = live.get("five_hour") or events.latest_utilization(ctx.conn, ctx.simulated)
+    return _over(five, min(ctx.cfg.quota_threshold, AUTORUN_QUOTA_CAP), now, 5 * 3600) \
+        or _over(live.get("seven_day"), AUTORUN_QUOTA_CAP, now, 7 * 86400)
 
 
 def _only(ctx: Ctx, projects) -> list[str] | None:

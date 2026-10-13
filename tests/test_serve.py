@@ -397,6 +397,21 @@ def test_live_quota_holds_auto_start(tmp_path):
     assert env.statuses() == {"sim-01": " "}
 
 
+def test_live_weekly_quota_holds_auto_start(tmp_path):
+    env = Env(tmp_path, "happy-path")
+    env.ctx.cfg = replace(env.ctx.cfg, quota_threshold=0.99)  # the 85 % cap holds even with a laxer run threshold
+    week = {"utilization": 0.85, "resets_at": (NIGHT + timedelta(days=2)).timestamp()}
+    env.ctx.live_quota = lambda: {"five_hour": {"utilization": 0.1, "resets_at": None}, "seven_day": week}
+    env.tick()
+    assert env.statuses() == {"sim-01": " "}
+    env.ctx.live_quota = lambda: {"five_hour": {"utilization": 0.86, "resets_at": None}, "seven_day": None}
+    env.tick()
+    assert env.statuses() == {"sim-01": " "}
+    env.ctx.live_quota = lambda: {"five_hour": {"utilization": 0.1, "resets_at": None}, "seven_day": {**week, "utilization": 0.84}}
+    env.tick()
+    assert env.statuses() == {"sim-01": "x"}
+
+
 def test_manual_run_ignores_quota_reserve(tmp_path):
     env = Env(tmp_path, "happy-path", now=NOON)
     events.log(env.ctx.conn, "earlier", "end", node="implement", simulated=True,
