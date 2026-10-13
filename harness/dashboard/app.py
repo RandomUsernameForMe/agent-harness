@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from .. import backlog, events, quota, serve, traces
 from ..graph import graph_mermaid, worker_mermaid
-from ..nodes.real import resolve_conflict_with_agent
+from ..nodes.real import fix_ci_with_agent, resolve_conflict_with_agent
 from ..projects import load_config
 from ..runner import execute, pending, questions
 from ..simulate import Simulation, prepare
@@ -90,7 +90,7 @@ def require_local_origin(request: Request) -> None:
 def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs, merge=traces.merge_pr,
                live_quota=quota.fetch, resolve=traces.resolve_changelog_conflict,
                merged=traces.merged_since, requeue=traces.requeue_pr,
-               fix=resolve_conflict_with_agent) -> FastAPI:
+               fix=resolve_conflict_with_agent, fix_ci=fix_ci_with_agent) -> FastAPI:
     from ..cli import open_db
 
     app = FastAPI(title="harness")
@@ -114,6 +114,8 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
             resolve_conflicts(path, hit[1] or [])
         return hit[1]
 
+    app.state.prs = cached_prs  # serve's autorun reads PRs through here, so it also triggers the PR care above
+
     merged_cache: dict[tuple, tuple[float, int | None]] = {}
 
     def cleanup_of(path: Path, ts: float | None) -> dict | None:
@@ -133,6 +135,29 @@ def create_app(home: Path, control: serve.Ctx | None = None, prs=traces.open_prs
             if traces.changelog_fixable(pr) and key not in tried:
                 tried.add(key)
                 threading.Thread(target=resolve_one, args=(path, pr), daemon=True).start()
+            elif ci_fixable(pr) and ("ci", *key) not in tried:
+                tried.add(("ci", *key))
+                threading.Thread(target=fix_ci_one, args=(path, pr), daemon=True).start()
+
+    def ci_fixable(pr: dict) -> bool:
+        return pr.get("ci") == "fail" and pr.get("mergeable") != "CONFLICTING" \
+            and str(pr.get("headRefName", "")).startswith("harness/")
+
+    def fix_ci_one(path: Path, pr: dict) -> None:
+        """Red CI on a harness PR: an agent fixes it once per head commit; the owner hears how it went."""
+        cfg = load_config(home / "projects.yaml")
+        project = next((p for p in cfg.projects.values() if p.path == path), None)
+        if project is None:
+            return
+        with resolve_lock:  # shares the repo's fetch and worktree list with the rebases
+            try:
+                note = f"🔧 PR #{pr['number']} ({project.name}): {fix_ci(project, pr['headRefName'], cfg.billing)}"
+            except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
+                detail = getattr(e, "stderr", None) or str(e)
+                note = f"🔴 PR #{pr['number']} ({project.name}): CI se nepodařilo opravit: {detail[-500:]}"
+        pr_cache.pop(path, None)
+        if control is not None:
+            serve.say(control, note)
 
     def resolve_one(path: Path, pr: dict) -> None:
         with resolve_lock:  # one rebase per serve at a time: they share the repo's fetch and worktree list

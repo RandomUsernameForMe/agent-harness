@@ -203,3 +203,45 @@ def test_agent_leaving_markers_or_failing_verify_pushes_nothing(tmp_path, monkey
     with pytest.raises(RuntimeError, match="exit 1"):
         resolve_conflict_with_agent(p, "harness/t-1", "subscription")
     assert git(["ls-remote", "origin", "harness/t-1"], repo) == before
+
+
+def _ci_fixer(tmp_path, monkeypatch, write: bool, verify: str = "python -c pass"):
+    from harness import traces
+    from harness.nodes import real
+    from harness.sdk import WorkerResult
+    repo = _changelog_conflict(tmp_path)
+    prompts = []
+
+    def agent(prompt, *, cwd, **kw):
+        prompts.append(prompt)
+        if write:
+            (Path(cwd) / "fix.txt").write_text("fixed")
+        return WorkerResult("test was broken", {}, None, None)
+    monkeypatch.setattr(real, "run_agent", agent)
+    monkeypatch.setattr(traces, "_gh_stdout", lambda args, cwd, label: "FAILED test_x" if args[1] == "view" else "7")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    return repo, Project("demo", repo, "main", (), (verify,), (), 3, 800), prompts
+
+
+def test_agent_fixes_red_ci_and_pushes(tmp_path, monkeypatch):
+    from harness.nodes.real import fix_ci_with_agent
+    repo, p, prompts = _ci_fixer(tmp_path, monkeypatch, write=True)
+    assert "CI opraveno" in fix_ci_with_agent(p, "harness/t-1", "subscription")
+    assert "FAILED test_x" in prompts[0]
+    git(["fetch", "-q", "origin"], repo)
+    assert git(["show", "origin/harness/t-1:fix.txt"], repo) == "fixed"
+    assert git(["log", "-1", "--format=%s", "origin/harness/t-1"], repo) == "fix: failing CI"
+    assert len(git(["worktree", "list"], repo).splitlines()) == 1
+
+
+def test_ci_fix_without_change_or_with_failing_verify_pushes_nothing(tmp_path, monkeypatch):
+    import pytest
+
+    from harness.nodes.real import fix_ci_with_agent
+    for sub, write, verify, error in (("idle", False, "python -c pass", "nic nezměnil"), ("verify", True, "exit 1", "exit 1")):
+        repo, p, _ = _ci_fixer(tmp_path / sub, monkeypatch, write, verify)
+        before = git(["ls-remote", "origin", "harness/t-1"], repo)
+        with pytest.raises(RuntimeError, match=error):
+            fix_ci_with_agent(p, "harness/t-1", "subscription")
+        assert git(["ls-remote", "origin", "harness/t-1"], repo) == before
+        assert len(git(["worktree", "list"], repo).splitlines()) == 1

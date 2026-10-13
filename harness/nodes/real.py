@@ -165,6 +165,41 @@ def resolve_conflict_with_agent(p: Project, branch: str, billing: str) -> str:
         traces.git_run(["worktree", "remove", "--force", str(wt)], p.path)
 
 
+def failed_ci_log(p: Project, branch: str) -> str:
+    """Tail of the failed jobs' log of the branch's latest workflow run; empty when gh can't tell."""
+    run = traces._gh_stdout(["run", "list", "--branch", branch, "--limit", "1", "--json", "databaseId", "-q",
+                             ".[0].databaseId"], p.path, f"gh run list {branch}")
+    if not (run or "").strip():
+        return ""
+    log = traces._gh_stdout(["run", "view", run.strip(), "--log-failed"], p.path, f"gh run view {run.strip()}")
+    return (log or "")[-4000:]
+
+
+def fix_ci_with_agent(p: Project, branch: str, billing: str) -> str:
+    """Let an agent fix the failing CI of a PR branch in a throwaway worktree; push only when setup + verify pass
+    and the agent changed something. RuntimeError says why nothing was pushed."""
+    if err := check_billing(billing, os.environ):
+        raise RuntimeError(err)
+    git(["fetch", "-q", "origin", branch], p.path)
+    wt = Path(tempfile.mkdtemp(prefix="harness-ci-"))
+    git(["worktree", "add", "-q", "--detach", str(wt), f"origin/{branch}"], p.path)
+    try:
+        r = run_agent(render_prompt("fix_ci.md", log=failed_ci_log(p, branch) or "(log unavailable, run the tests)"),
+                      cwd=wt, model="sonnet", tools=WRITE_TOOLS, disallowed=NO_PUBLISH, max_turns=60)
+        git(["add", "-A"], wt)
+        if traces.git_run(["diff", "--cached", "--quiet"], wt).returncode == 0:
+            raise RuntimeError(f"agent nic nezměnil: {r.text[-300:]}")
+        for cmd in (*p.setup, *p.verify):
+            ok, out = sh(cmd, wt)
+            if not ok:
+                raise RuntimeError(f"`{cmd}` po opravě CI selhal:\n{out[-1500:]}")
+        git(["commit", "-q", "-m", "fix: failing CI"], wt)
+        git(["push", "-q", "origin", f"HEAD:{branch}"], wt)
+        return f"CI opraveno, verify prošlo, změny pushnuté. {r.text[-300:]}"
+    finally:
+        traces.git_run(["worktree", "remove", "--force", str(wt)], p.path)
+
+
 def recent_block(p: Project, wt: Path, commits: int = 30) -> str:
     """Recent PRs (any state) and base commits, so the scout does not propose work that already exists."""
     prs = traces.recent_prs(wt) or []

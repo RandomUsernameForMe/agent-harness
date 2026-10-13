@@ -89,3 +89,4 @@
 ## [2026-10-12] - Discover: oprava volání traces._git → git_run (přehled nedávných commitů padal)
 ## [2026-10-12] - Animované vysvětlující video SAMM (docs/video: HTML scéna + render do MP4)
 ## [2026-10-13] - Autorun kdykoli místo nočního okna: limity 6 PR / 10 návrhů / cleanup po 14 dnech nebo 10 PR, denní digest v digest_at, historie v dashboardu
+## [2026-10-13] - Démon řeší konflikty PR i bez otevřeného dashboardu a červené CI harness PR opravuje agentem

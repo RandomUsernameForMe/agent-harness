@@ -254,6 +254,31 @@ def test_overview_resolves_conflicting_harness_prs_in_background(tmp_path):
     assert len(resolved) == 2  # same head commits: no second attempt
 
 
+def test_red_ci_on_harness_pr_fixed_once_per_head_via_shared_pr_cache(tmp_path):
+    import threading
+    (tmp_path / "a").mkdir()
+    (tmp_path / "projects.yaml").write_text("projects:\n  alpha: {path: a, base: main, verify: [x]}\n", encoding="utf-8")
+    pr = {"mergeable": "MERGEABLE", "baseRefName": "main", "headRefOid": "s1", "ci": "fail"}
+    pulls = [pr | {"number": 1, "headRefName": "harness/t-1"},
+             pr | {"number": 2, "headRefName": "user-branch"},
+             pr | {"number": 3, "headRefName": "harness/t-3", "ci": "ok"},
+             pr | {"number": 4, "headRefName": "harness/t-4", "mergeable": "CONFLICTING"}]  # rebase first
+    fixed, done = [], threading.Event()
+
+    def fix_ci(project, branch, billing):
+        fixed.append((project.name, branch))
+        done.set()
+        return "CI opraveno"
+    app = create_app(tmp_path, prs=lambda path: pulls, resolve=lambda *a: None, fix_ci=fix_ci)
+    path = (tmp_path / "a").resolve()
+    app.state.prs(path)  # what serve's autorun calls, no dashboard request needed
+    assert done.wait(5)
+    for _ in range(50):  # the fix drops the cache: the next read lists again, same head → no second fix
+        app.state.prs(path)
+        time.sleep(0.02)
+    assert fixed == [("alpha", "harness/t-1")]
+
+
 def _conflict_app(tmp_path, fix):
     """Two harness PRs whose rebase hits a conflict in a.txt; returns the client and the requeue calls."""
     import threading

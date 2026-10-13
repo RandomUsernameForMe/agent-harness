@@ -86,6 +86,7 @@ Discover z autorunu nečeká na schválení plánu. Všechny návrhy skončí ja
 - návrhy `[~]` posílá s tlačítky ✅/❌,
 - jednou denně v `serve.digest_at` (výchozí `07:00`) pošle digest (PR, chyby, tokeny). Digest libovolného dne je v dashboardu v panelu Historie autorunu,
 - jednou denně spustí `scan`,
+- PR harnessu s konfliktem v CHANGELOG.md rebasuje sám i bez otevřeného dashboardu. U PR s červeným CI nechá agenta opravu jednou za head commit (push jen když projde verify) a výsledek pošle do Telegramu,
 - po rate limitu sám pokračuje,
 - po restartu naváže na rozběhnutý běh,
 - když běh spadne, vypne automatiku a pošle zprávu (zapne se příkazem `/resume`).
