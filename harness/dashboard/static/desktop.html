@@ -15,10 +15,14 @@
   .wrap { padding:28px 32px 72px 140px; display:grid; gap:16px; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); align-items:start; }
   @media (max-width:1100px) { .wrap { grid-template-columns:1fr; padding:16px; } }
   .col { display:grid; gap:16px; min-width:0; }
-  /* the wallpaper (Lively) gets no mouse wheel: each column scrolls by its own draggable scrollbar */
+  /* the wallpaper (Lively) may get no mouse wheel: each column scrolls by its scrollbar or by dragging the content;
+     rtl puts the left column's scrollbar on its outer edge instead of mid-screen */
   @media (min-width:1101px) {
     .wrap { height:100vh; grid-template-rows:auto minmax(0,1fr); }
     .wrap > .col { max-height:100%; overflow-y:auto; padding-right:6px; scrollbar-color:var(--muted) transparent; }
+    .wrap > .col.left { direction:rtl; padding:0 0 0 6px; }
+    .wrap > .col.left > * { direction:ltr; }
+    .wrap > .col.dragging { cursor:grabbing; user-select:none; }
   }
   header { grid-column:1 / -1; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
   h1 { font-size:26px; font-weight:700; margin:0 12px 0 0; letter-spacing:-.01em; }
@@ -251,7 +255,7 @@
     <div id="subtitle">Subscription Automatic Milking Machine — dojíme tokeny 24/7</div>
   </header>
 
-  <div class="col">
+  <div class="col left">
     <section id="flow">
       <div class="actions">
         <button class="action primary" data-act="run" data-path="pick_tasks worker reflect">
@@ -785,6 +789,27 @@ refresh(); refreshUsage();
 let ticks = 0;
 setInterval(() => { if (runActive || agentResolving || ++ticks % 5 === 0) refresh(); }, 3000);  // live while a run or conflict agent is active
 setInterval(refreshUsage, 60000);
+
+// drag-to-scroll: Lively may not forward the wheel; a drag past 5px scrolls the column and swallows the click
+const NO_DRAG = "button, a, input, select, textarea, label, summary, pre";
+for (const col of document.querySelectorAll(".wrap > .col")) {
+  let startY = null, startTop = 0, dragged = false;
+  col.addEventListener("pointerdown", e => {
+    dragged = false;
+    if (e.button !== 0 || e.target.closest(NO_DRAG) || col.scrollHeight <= col.clientHeight) return;
+    startY = e.clientY; startTop = col.scrollTop;
+  });
+  col.addEventListener("pointermove", e => {
+    if (startY === null) return;
+    if (!dragged && Math.abs(e.clientY - startY) < 5) return;
+    if (!dragged) { dragged = true; col.classList.add("dragging"); col.setPointerCapture(e.pointerId); }
+    col.scrollTop = startTop - (e.clientY - startY);
+  });
+  const end = () => { startY = null; col.classList.remove("dragging"); };
+  col.addEventListener("pointerup", end);
+  col.addEventListener("pointercancel", end);
+  col.addEventListener("click", e => { if (dragged) { e.stopPropagation(); e.preventDefault(); dragged = false; } }, true);
+}
 </script>
 </body>
 </html>
