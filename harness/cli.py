@@ -225,8 +225,9 @@ def cmd_serve(args) -> int:
                     state=serve.load_state(state_path, datetime.now()),
                     spawn=lambda job: threading.Thread(target=job, daemon=True).start(),
                     now=datetime.now, scan=lambda: _scan_into(cfg, backlog_path), state_path=state_path,
-                    store=store, live_quota=quota.fetch, prs=traces.open_prs, merged=traces.merged_since)
+                    store=store, live_quota=quota.fetch, merged=traces.merged_since)
     web = create_app(args.home, control=ctx)
+    ctx.prs = web.state.prs  # shared cache: conflict rebases and CI fixes run even with no dashboard open
     threading.Thread(target=uvicorn.run, args=(web,), kwargs={"host": "127.0.0.1", "port": args.port},
                      daemon=True).start()
     print(f"harness serve: autorun, dashboard http://127.0.0.1:{args.port}/desktop, Ctrl+C to stop")
