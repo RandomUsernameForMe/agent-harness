@@ -131,11 +131,9 @@ def _status(pid: str, planned: set[str], kept: list[str] | None) -> str:
 
 def apply_approval(text: str, proposals: list[dict], plan: list[dict], kept: list[str] | None) -> str:
     """New proposals into BACKLOG once: approved [ ], struck out [-], not planned / quit [~]."""
-    planned, known = {p["id"] for p in plan}, {t.id for t in backlog.parse(text)}
-    for p in proposals:
-        if p["id"] not in known:
-            text = backlog.add_tasks(text, p["project"], task_lines(p, _status(p["id"], planned, kept)))
-    return text
+    planned = {p["id"] for p in plan}
+    return backlog.add_new(text, [(p["id"], p["project"], task_lines(p, _status(p["id"], planned, kept)))
+                                  for p in proposals])
 
 
 def format_plan(plan: list[dict]) -> str:

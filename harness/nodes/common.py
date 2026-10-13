@@ -128,15 +128,6 @@ def make_approve(backlog_path: Path):
     return approve
 
 
-def _add_harness_tasks(text: str, tasks: list[tuple[str, list[str]]]) -> str:
-    known = {t.id for t in backlog.parse(text)}
-    for pid, lines in tasks:
-        if pid not in known:
-            text = backlog.add_tasks(text, lessons.HARNESS, lines)
-            known.add(pid)
-    return text
-
-
 def make_reflect(backlog_path: Path, reflect_fn: Callable[[list[dict], list[dict]], tuple[str, dict]],
                  pr_info: Callable[[str], tuple[str, str] | None]):
     """End of every run: new owner feedback → proposed lessons (the owner approves them) and prompt changes
@@ -169,7 +160,7 @@ def make_reflect(backlog_path: Path, reflect_fn: Callable[[list[dict], list[dict
             if f["scope"] == "project":
                 lessons.propose(store, f["project"], f["text"], f["source"])
         if prompts := [lessons.harness_task(f) for f in found if f["scope"] == "prompt"]:
-            edit_backlog(backlog_path, lambda t: _add_harness_tasks(t, prompts))
+            edit_backlog(backlog_path, lambda t: backlog.add_new(t, [(pid, lessons.HARNESS, lines) for pid, lines in prompts]))
         for i in items:
             store.put(lessons.SEEN, i["key"], mark)
         return _spent(agent)

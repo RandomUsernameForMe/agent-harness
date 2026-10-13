@@ -1,6 +1,6 @@
 import pytest
 
-from harness.backlog import add_tasks, parse, replace_task, set_status
+from harness.backlog import add_new, add_tasks, parse, replace_task, set_status
 
 SAMPLE = """# Backlog
 
@@ -125,3 +125,14 @@ def test_replace_task_swaps_row_and_description_only():
     assert out == "## p\r\n- [ ] P3 a New\r\n  n1\r\n- [ ] P1 b Other\r\n  z\r\n"
     with pytest.raises(KeyError):
         replace_task(text, "zz", 1, " ", "t", [])
+
+
+def test_add_new_skips_known_ids_and_duplicates():
+    text = "## a\n- [ ] P1 a-1 A\n"
+    out = add_new(text, [("a-1", "a", ["- [~] P3 a-1 Again"]), ("a-2", "a", ["- [~] P3 a-2 New"]),
+                         ("a-2", "a", ["- [~] P3 a-2 New"])])
+    assert out == "## a\n- [ ] P1 a-1 A\n- [~] P3 a-2 New\n"
+
+
+def test_add_new_creates_section_for_new_project():
+    assert add_new("", [("c-1", "c", ["- [~] P3 c-1 New"])]) == "## c\n- [~] P3 c-1 New\n"
