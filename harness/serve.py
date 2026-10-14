@@ -387,9 +387,27 @@ def _rejected(reason: str) -> str:
     return f" — zamítnuto: {reason}" if reason else " — zamítnuto"
 
 
+def _find(text: str, task_id: str) -> backlog.Task | None:
+    return next((t for t in backlog.parse(text) if task_id == t.id), None)
+
+
+def _clean_title_priority(title: str, priority: int) -> str:
+    title = safe_title(title)[:100]
+    if not title:
+        raise ValueError("prázdný titulek")
+    if priority not in (1, 2, 3):
+        raise ValueError("priorita musí být 1–3")
+    return title
+
+
+def _task_fields(data: dict) -> tuple[str, str, str, int]:
+    return (str(data.get("title") or ""), str(data.get("description") or ""),
+            str(data.get("done") or ""), int(data.get("priority") or 2))
+
+
 def _decide(ctx: Ctx, task_id: str, approve: bool, reason: str = "") -> str:
     def change(text: str) -> tuple[str, str]:
-        t = next((t for t in backlog.parse(text) if t.id == task_id), None)
+        t = _find(text, task_id)
         if t is None or t.status != "~":
             return text, "už vyřízeno"
         new = backlog.set_status(text, task_id, " " if approve else "-", "" if approve else _rejected(reason))
@@ -400,23 +418,19 @@ def _decide(ctx: Ctx, task_id: str, approve: bool, reason: str = "") -> str:
 def _reason(ctx: Ctx, task_id: str, reason: str) -> str:
     """A reason sent after the rejection (Telegram reply); the reflection reads it from the task's note."""
     def change(text: str) -> str:
-        t = next((t for t in backlog.parse(text) if t.id == task_id), None)
+        t = _find(text, task_id)
         return backlog.set_status(text, task_id, "-", _rejected(reason)) if t and t.status == "-" else text
     backlog.edit(ctx.backlog_path, change)
     return f"📝 {task_id}: důvod uložen, reflexe se z něj poučí."
 
 
 def _add_task(ctx: Ctx, project: str, title: str, description: str = "", done: str = "", priority: int = 2) -> str:
-    title = safe_title(title)[:100]
     if project not in ctx.cfg.projects:
         raise ValueError(f"neznámý projekt: {project or '(prázdný)'}")
-    if not title:
-        raise ValueError("prázdný titulek")
-    if priority not in (1, 2, 3):
-        raise ValueError("priorita musí být 1–3")
+    title = _clean_title_priority(title, priority)
     task_id = backlog.task_id(project, "m", title)
     def change(text: str) -> tuple[str, str]:
-        if any(t.id == task_id or (t.project == project and t.title.casefold() == title.casefold()) for t in backlog.parse(text)):
+        if any(task_id == t.id or (t.project == project and t.title.casefold() == title.casefold()) for t in backlog.parse(text)):
             return text, f"➖ {task_id}: už existuje."
         lines = task_lines({"id": task_id, "title": title, "description": description, "done": " ".join(done.split())}, " ")
         lines[0] = f"- [ ] P{priority} {task_id} {title}"
@@ -425,15 +439,11 @@ def _add_task(ctx: Ctx, project: str, title: str, description: str = "", done: s
 
 
 def _edit_task(ctx: Ctx, task_id: str, title: str, description: str, done: str, priority: int, approve: bool) -> str:
-    title = safe_title(title)[:100]
-    if not title:
-        raise ValueError("prázdný titulek")
-    if priority not in (1, 2, 3):
-        raise ValueError("priorita musí být 1–3")
+    title = _clean_title_priority(title, priority)
     note = []
 
     def change(text: str) -> str:
-        t = next((t for t in backlog.parse(text) if t.id == task_id), None)
+        t = _find(text, task_id)
         if t is None or t.status != "~":
             note.append("už vyřízeno")
             return text
@@ -703,13 +713,9 @@ def act(ctx: Ctx, action: str, data: dict) -> str:
         elif action == "answer":
             reply = _web_answer(ctx, str(data.get("id")), str(data.get("text") or ""))
         elif action == "add":
-            reply = _add_task(ctx, str(data.get("project") or ""), str(data.get("title") or ""),
-                              str(data.get("description") or ""), str(data.get("done") or ""),
-                              int(data.get("priority") or 2))
+            reply = _add_task(ctx, str(data.get("project") or ""), *_task_fields(data))
         elif action == "edit":
-            reply = _edit_task(ctx, str(data.get("task")), str(data.get("title") or ""),
-                               str(data.get("description") or ""), str(data.get("done") or ""),
-                               int(data.get("priority") or 2), bool(data.get("approve")))
+            reply = _edit_task(ctx, str(data.get("task")), *_task_fields(data), bool(data.get("approve")))
         elif action in ("pause", "resume"):
             reply = _command(ctx, action)
         else:
