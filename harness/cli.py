@@ -183,14 +183,7 @@ def _scan_into(cfg, backlog_path: Path) -> int:
     """Scan outside the backlog lock (git fetch is slow), then append only proposals still unknown."""
     _, props = scan_all(cfg, backlog.read(backlog_path))
 
-    def add(text: str) -> str:
-        known = {t.id for t in backlog.parse(text)}
-        for p in props:
-            if p.id not in known:
-                text = backlog.add_tasks(text, p.project, proposal_lines(p))
-                known.add(p.id)
-        return text
-    backlog.edit(backlog_path, add)
+    backlog.edit(backlog_path, lambda text: backlog.add_new(text, [(p.id, p.project, proposal_lines(p)) for p in props]))
     return len(props)
 
 

@@ -114,6 +114,16 @@ def add_tasks(text: str, project: str, lines: list[str]) -> str:
     return eol.join(rows[:end] + lines + rows[end:]) + eol
 
 
+def add_new(text: str, items: list[tuple[str, str, list[str]]]) -> str:
+    """Add tasks whose id is not in the backlog yet; items are (id, project, lines)."""
+    known = {t.id for t in parse(text)}
+    for task_id, project, lines in items:
+        if task_id not in known:
+            text = add_tasks(text, project, lines)
+            known.add(task_id)
+    return text
+
+
 def read(path: Path) -> str:
     return path.read_bytes().decode("utf-8") if path.exists() else ""
 
